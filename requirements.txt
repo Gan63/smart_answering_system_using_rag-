@@ -1,0 +1,10 @@
+uv add chromadb
+uv add sentence-transformers
+uv add transformers
+uv add torch
+uv add pillow
+uv add pymupdf
+uv add openai
+uv add numpy
+uv add accelerate
+uv add multipart
