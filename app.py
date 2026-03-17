@@ -11,8 +11,8 @@ from openai import OpenAI
 
 # Initialize the OpenAI client
 llm_client = OpenAI(
-    api_key="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",
-    base_url="https://openrouter.ai/api/v1"
+    api_key="Api key",
+    base_url="url"
 )
 
 import base64
