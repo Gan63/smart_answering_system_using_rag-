@@ -9,6 +9,9 @@ def get_reranker():
     return reranker
 
 def rerank(query, documents):
+    if not documents:
+        return []
+
     model = get_reranker()
     pairs = [[query, doc] for doc in documents]
 
@@ -21,3 +24,4 @@ def rerank(query, documents):
     top_docs = [doc for doc, score in scored_docs[:3]]
 
     return top_docs
+

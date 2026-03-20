@@ -158,7 +158,15 @@ button { font-family: var(--font); cursor: pointer; border: none; background: no
 }
 .upload-status.success { color: var(--accent); }
 .upload-status.error   { color: #ff5c5c; }
- 
+
+.upload-message {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 6px;
+  text-align: center;
+  min-height: 16px;
+}
+
 .upload-progress-wrap {
   margin-top: 6px;
   height: 3px;

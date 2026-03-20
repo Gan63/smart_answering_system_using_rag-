@@ -1,96 +1,51 @@
-import os
-import uvicorn
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from werkzeug.utils import secure_filename
-
-from openai import OpenAI
-
-# Initialize the OpenAI client
-llm_client = OpenAI(
-    api_key="Api key",
-    base_url="url"
-)
-
 import base64
 import os
 import uvicorn
+import traceback
+import uuid
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from werkzeug.utils import secure_filename
-
 from openai import OpenAI
+from agent.planner import agent_query
+from ingestion.ingest_pdf import ingest_pdf
+from database.chroma_client import delete_session_data
+from session_store import session_store
+from contextlib import asynccontextmanager
 
-# Initialize the OpenAI client
-llm_client = OpenAI(
-    api_key="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",
-    base_url="https://openrouter.ai/api/v1"
-)
+# =========================
+# Globals
+# =========================
+llm_client = None
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+UPLOAD_FOLDER = "data"
 
-def ask_llm(text_context, image_context, question):
-    if image_context:
-        # We have an image, so we need to construct a multimodal prompt
-        
-        # Read the image file and encode it in base64
-        with open(image_context, "rb") as image_file:
-            encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
-        
-        # Construct the prompt with text and image
-        prompt = [
-            {
-                "type": "text",
-                "text": f"""
-Use the following context to answer the question. 
-If the question is about an image, use the provided image to answer it.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    global llm_client
+    if not OPENROUTER_API_KEY:
+        raise ValueError("[X] Please set OPENROUTER_API_KEY")
 
-Text Context:
-{text_context}
+    llm_client = OpenAI(
+        api_key="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",
+        base_url="https://openrouter.ai/api/v1"
+    )
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    pass  # Startup complete
+    yield
+    # Shutdown
+    pass  # Shutdown
 
-Question:
-{question}
-"""
-            },
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/png;base64,{encoded_image}"
-                }
-            }
-        ]
-        
-        # Call a vision-capable model
-        response = llm_client.chat.completions.create(
-            model="google/gemini-pro-vision",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content
+# =========================
+# 🚀 FASTAPI SETUP
+# =========================
+app = FastAPI(lifespan=lifespan)
 
-    else:
-        # No image, so we can use a standard text-based model
-        prompt = f"""
-Use the following context to answer the question.
-
-Context:
-{text_context}
-
-Question:
-{question}
-"""
-        response = llm_client.chat.completions.create(
-            model="meta-llama/llama-3-8b-instruct",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content
-
-app = FastAPI()
-
-# Add CORS middleware (only needed if frontend runs on a different origin)
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -99,68 +54,148 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve frontend static files
+# Static files
 app.mount("/static", StaticFiles(directory="project_ui"), name="static")
+app.mount("/data", StaticFiles(directory="data", html=False), name="data")
 
-# Configuration
-UPLOAD_FOLDER = 'data'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# =========================
+# 🤖 LLM FUNCTION
+# =========================
+def ask_llm(text_context, image_context, question):
+    try:
+        messages = []
+        if image_context and os.path.exists(image_context):
+            with open(image_context, "rb") as image_file:
+                encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
+            
+            messages.append({
+                "type": "text",
+                "text": f"Use the following context to answer the question.\n\nText Context:\n{text_context}\n\nQuestion:\n{question}"
+            })
+            messages.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{encoded_image}"}
+            })
+            model = "openai/gpt-4o-mini"
+        else:
+            messages.append({
+                "type": "text",
+                "text": f"Use the following context to answer the question.\n\nContext:\n{text_context}\n\nQuestion:\n{question}"
+            })
+            model = "meta-llama/llama-3-8b-instruct"
 
+        response = llm_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": messages}]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"[ERROR] LLM: {e}")
+        raise
+
+# =========================
+# 📦 REQUEST MODELS
+# =========================
 class AskRequest(BaseModel):
     question: str
+    session_id: str
 
+# =========================
+# 🌐 ROUTES
+# =========================
 @app.get("/")
 async def root():
-    return FileResponse('project_ui/index.html')
-
-@app.get("/login")
-async def login():
-    return FileResponse('project_ui/login.html')
+    return FileResponse("project_ui/index.html")
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
-@app.post("/upload_pdf")
-async def upload_pdf(file: UploadFile = File(...)):
-    from ingestion.ingest_pdf import ingest_pdf
+@app.get("/favicon.ico")
+async def favicon():
+    from fastapi.responses import Response
+    return Response(status_code=204)
 
-    if not file:
-        raise HTTPException(status_code=400, detail="No file part")
+@app.post("/upload")
+async def upload(file: UploadFile = File(...)):
+    pass  # Upload hit
+    pass  # Filename logged
+    pass
     try:
+        if not file:
+            raise HTTPException(status_code=400, detail="No file uploaded")
+
         filename = secure_filename(file.filename)
         file_path = os.path.join(UPLOAD_FOLDER, filename)
+
         with open(file_path, "wb") as buffer:
             buffer.write(await file.read())
+ 
+        session_id = str(uuid.uuid4())
         
-        ingest_pdf(file_path)
-        return {"message": f"File {filename} uploaded and ingested successfully"}
+        pass
+        ingest_pdf(pdf_path=file_path, session_id=session_id)
+        pass
+        session_store.create_session(filename)
+        
+        pass
+        return {
+            "message": f"✅ {filename} uploaded successfully. Ask queries related to this document.",
+            "session_id": session_id,
+            "filename": filename
+        }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to ingest file: {str(e)}")
+        print(f"[ERROR] Upload: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/ask")
-async def ask(request: AskRequest):
-    from agent.planner import agent_query
 
-    question = request.question
-    if not question:
-        raise HTTPException(status_code=400, detail="Question is required")
+@app.post("/query")
+async def query(request: AskRequest):
+    print(f"DEBUG QUERY - session_id: '{request.session_id}' question: '{request.question[:50]}...'")
+    if not request.session_id:
+        return {"answer": "Please upload a document first.", "error": "No session"}
+
     try:
-        context = agent_query(question)
-        text_context = context.get("text_context", "")
-        image_context = context.get("image_context")
-
-        answer = ask_llm(text_context, image_context, question)
+        context = agent_query(user_query=request.question, session_id=request.session_id)
+        print(f"DEBUG context keys: {list(context.keys()) if context else None}")
+        print(f"DEBUG text_context len: {len(context.get('text_context', '')) if context else 0}")
+        print(f"DEBUG image_context: {context.get('image_context')}")
         
-        # The context to return to the UI can be a simplified string version
-        display_context = text_context
-        if image_context:
-            display_context += f"\n[Image Context: {os.path.basename(image_context)}]"
-            
-        return {"answer": answer, "context": display_context}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get answer: {str(e)}")
+        if not context or not context.get('text_context'):
+            return {"answer": "No relevant information found in the document. Try rephrasing.", "error": "No context", "context": context or {}}
 
+        answer = ask_llm(
+            text_context=context.get("text_context"),
+            image_context=context.get("image_context"),
+            question=request.question
+        )
+        return {
+            "answer": answer,
+            "context": context,
+            "image_paths": context.get("image_paths", [])
+        }
+    except Exception as e:
+        print(f"DEBUG FULL ERROR in query: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"answer": f"Server error: {str(e)}", "error": str(e), "context": {}}
+
+
+
+
+@app.delete("/session/{session_id}")
+async def delete_session(session_id: str):
+    try:
+        delete_session_data(session_id)
+        return {"message": f"✅ Session {session_id} and its data have been deleted."}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to delete session {session_id}: {e}")
+
+# =========================
+# ▶️ RUN
+# =========================
 if __name__ == "__main__":
-    print("Run the server with: uvicorn app:app --host 127.0.0.1 --port 8000")
-    print("This will serve both the backend API and the frontend.")
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

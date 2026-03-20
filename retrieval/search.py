@@ -2,19 +2,29 @@ from database.chroma_client import get_text_collection, get_image_collection
 from models.embedding_model import embed_clip_text, embed_text
 from retrieval.reranker import rerank
 
-def search(query, strategy="text search"):
+def search(query: str, session_id: str, strategy: str = "text search"):
+    """
+    Searches for a query in the database, filtered by session_id.
+    """
+    if not session_id:
+        raise ValueError("session_id is required for search.")
+
     text_collection = get_text_collection()
     image_collection = get_image_collection()
 
     text_context = ""
     image_context = None
+    image_paths = []
 
-    # Always search for text to provide context, but rerank and prioritize based on strategy
+    # Always search for text to provide context
+    print(f"DEBUG SEARCH text query...")
     text_results = text_collection.query(
         query_embeddings=[embed_text(query)],
         n_results=10,
+        where={"session_id": session_id},
         include=["documents"]
     )
+    print(f"DEBUG SEARCH text results: {len(text_results.get('documents', [[ ]])[0]) if 'documents' in text_results else 0}")
 
     documents = []
     if text_results["documents"] and text_results["documents"][0]:
@@ -25,22 +35,24 @@ def search(query, strategy="text search"):
         top_docs = rerank(query, documents)[:3]
         text_context = "\n".join(top_docs)
 
-    # If the strategy is 'image search', we also perform a targeted image query
+    # If the strategy is 'image search', perform a targeted image query
     if strategy == "image search":
         try:
             clip_embedding = embed_clip_text(query)
             image_results = image_collection.query(
                 query_embeddings=[clip_embedding],
                 n_results=1,
+                where={"session_id": session_id},
                 include=["documents"]
             )
             if image_results and image_results["documents"] and image_results["documents"][0]:
-                image_context = image_results["documents"][0][0]  # take the first image
+                image_context = image_results["documents"][0][0]
+                image_paths = [image_context] # Add the path to the list
         except Exception as e:
             print(f"Image search failed: {e}")
-            pass  # Gracefully fail and proceed without image context
+            pass
 
     if not text_context and not image_context:
-        return {"text_context": "No relevant documents found.", "image_context": None}
+        return {"text_context": "No relevant documents found for this session.", "image_context": None, "image_paths": []}
 
-    return {"text_context": text_context, "image_context": image_context}
+    return {"text_context": text_context, "image_context": image_context, "image_paths": image_paths}

@@ -24,7 +24,10 @@
           <button class="icon-btn" id="sidebarClose" title="Close sidebar">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
           </button>
-          <button class="icon-btn" id="newChatIcon" title="New chat">
+          <button class="icon-btn" id="clearHistoryBtn" title="Clear history">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2m-6 5v6m4-6v6"/></svg>
+          </button>
+           <button class="icon-btn" id="newChatIcon" title="New chat">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </button>
         </div>
@@ -32,12 +35,13 @@
  
       <!-- Upload PDF in sidebar -->
       <div class="sb-upload">
-        <input type="file" id="fileInput" accept=".pdf" style="display:none">
-        <button class="sb-upload-btn" id="uploadBtn">
+        <input type="file" id="fileInput" accept=".pdf,.docx" style="display:none">
+          <button class="sb-upload-btn" id="uploadBtn">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
           Upload PDF
         </button>
         <div id="uploadStatus" class="upload-status"></div>
+        <div id="uploadMessage" class="upload-message" style="display:none"></div>
         <!-- Upload progress -->
         <div class="upload-progress-wrap" id="uploadProgressWrap" style="display:none">
           <div class="upload-progress-bar" id="uploadProgressBar"></div>
@@ -124,14 +128,31 @@
       <!-- Input -->
       <div class="input-area">
         <div class="input-box" id="inputBox">
+
+    <!-- Upload Icon -->
+    <label for="fileInput" class="icon upload-icon">➕</label>
+    <input type="file" id="fileInput" hidden>
+
+    <!-- Single Textarea -->
           <textarea id="prompt" placeholder="Message Smart RAG Assistant…" rows="1"></textarea>
+
+    <!-- Mic Icon -->
+    <button class="icon mic-icon" id="micBtn">🎙️</button>
+
+    <!-- Send Button -->
           <button class="send-btn" id="sendBtn" disabled>
-            <svg width="16" height="16" viewBox="0 0 32 32" fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M15.192 8.906a1.143 1.143 0 011.616 0l5.143 5.143a1.143 1.143 0 01-1.616 1.616l-3.196-3.196v9.813a1.143 1.143 0 01-2.286 0v-9.813l-3.196 3.196a1.143 1.143 0 11-1.616-1.616l5.151-5.143z" fill="currentColor"/></svg>
+      <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
+        <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M15.192 8.906a1.143 1.143 0 011.616 0l5.143 5.143a1.143 1.143 0 01-1.616 1.616l-3.196-3.196v9.813a1.143 1.143 0 01-2.286 0v-9.813l-3.196 3.196a1.143 1.143 0 11-1.616-1.616l5.151-5.143z"
+          fill="currentColor"/>
+      </svg>
           </button>
+
         </div>
-        <p class="disclaimer">Smart RAG can make mistakes. Verify important information.</p>
-      </div>
-    </main>
+
+  <p class="disclaimer">
+    Smart RAG can make mistakes. Verify important information.
+  </p>
   </div>
  
   <!-- Chunk Detail Modal -->
