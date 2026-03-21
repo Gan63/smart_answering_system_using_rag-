@@ -51,7 +51,8 @@ def chunk_text(text, chunk_size=500):
         chunks.append(chunk)
     return chunks
 
-def ingest_docx(docx_path):
+def ingest_docx(docx_path, session_id: str):
+    source_name = os.path.basename(docx_path)
     print(f"Ingesting DOCX: {docx_path}")
     text, image_paths = extract_text_and_images_from_docx(docx_path)
     
@@ -68,19 +69,22 @@ def ingest_docx(docx_path):
             text_collection.add(
                 ids=[str(uuid.uuid4())],
                 embeddings=[embedding],
-                documents=[chunk]
+                documents=[chunk],
+                metadatas=[{"source": source_name, "session_id": session_id}]
             )
         print(f"Stored {len(chunks)} text chunks in ChromaDB")
     
     # Ingest images
     if image_paths:
+        source_name = os.path.basename(docx_path)
         image_collection = get_image_collection()
         for image_path in image_paths:
             embedding = embed_image(image_path)
             image_collection.add(
                 ids=[str(uuid.uuid4())],
                 embeddings=[embedding],
-                documents=[image_path]
+                documents=[image_path],
+                metadatas=[{"source": source_name, "session_id": session_id}]
             )
         print(f"Stored {len(image_paths)} images in ChromaDB")
     

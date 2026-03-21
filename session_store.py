@@ -15,8 +15,7 @@ class SessionStore:
     def __init__(self):
         self.sessions: Dict[str, SessionInfo] = {}
 
-    def create_session(self, filename: str) -> str:
-        session_id = str(time.time()) + str(hash(filename))
+    def create_session(self, filename: str, session_id: str) -> str:
         self.sessions[session_id] = SessionInfo(
             filename=filename,
             created_at=time.time(),
