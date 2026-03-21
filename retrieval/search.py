@@ -3,6 +3,7 @@ from models.embedding_model import embed_clip_text, embed_text
 from retrieval.reranker import rerank
 
 def search(query: str, session_id: str, strategy: str = "text search", top_k_text: int = 10, top_k_image: int = 1):
+    print(f"SEARCH CALLED strategy={strategy} session={session_id} query='{query[:50]}...'")
     """
     Searches for a query in the database, filtered by session_id.
     Configurable top_k for improved accuracy.
@@ -25,7 +26,12 @@ def search(query: str, session_id: str, strategy: str = "text search", top_k_tex
         where={"session_id": session_id},
         include=["documents"]
     )
-    print(f"DEBUG SEARCH text results: {len(text_results.get('documents', [[ ]])[0]) if 'documents' in text_results else 0}")
+    print(f"DEBUG SEARCH text results_count={len(text_results.get('documents', [[ ]])[0]) if 'documents' in text_results else 0}")
+
+    documents = []
+    if text_results["documents"] and text_results["documents"][0]:
+        documents.extend(text_results["documents"][0])
+        print(f"DEBUG documents_len={len(documents)}")
 
     documents = []
     if text_results["documents"] and text_results["documents"][0]:
@@ -36,22 +42,24 @@ def search(query: str, session_id: str, strategy: str = "text search", top_k_tex
         top_docs = rerank(query, documents)[:3]
         text_context = "\n".join(top_docs)
 
-    # If the strategy is 'image search', perform a targeted image query
-    if strategy == "image search":
-        try:
-            clip_embedding = embed_clip_text(query)
-            image_results = image_collection.query(
-                query_embeddings=[clip_embedding],
-                n_results=top_k_image,
-                where={"session_id": session_id},
-                include=["documents"]
-            )
-            if image_results and image_results["documents"] and image_results["documents"][0]:
-                image_context = image_results["documents"][0][0]
-                image_paths = [image_context] # Add the path to the list
-        except Exception as e:
-            print(f"Image search failed: {e}")
-            pass
+    # Image search (always for multimodal)
+    try:
+        clip_embedding = embed_clip_text(query)
+        image_results = image_collection.query(
+            query_embeddings=[clip_embedding],
+            n_results=top_k_image,
+            where={"session_id": session_id},
+            include=["documents"]
+        )
+        image_paths = []
+        if image_results and image_results["documents"] and image_results["documents"][0]:
+            image_paths = image_results["documents"][0]
+            print(f"🖼️ Image retrieved: {len(image_paths)}")
+        image_context = image_paths[0] if image_paths else None
+    except Exception as e:
+        print(f"Image search failed: {e}")
+        image_paths = []
+        image_context = None
 
     if not text_context and not image_context:
         return {"text_context": "No relevant documents found for this session.", "image_context": None, "image_paths": []}

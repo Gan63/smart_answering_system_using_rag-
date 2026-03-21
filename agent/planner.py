@@ -6,12 +6,8 @@ def agent_query(user_query: str, session_id: str, top_k_text: int = 10, top_k_im
     ensuring the session_id is passed for filtering.
     '''
     print(f"DEBUG AGENT - session: {session_id}, query: {user_query[:50]}")
-    # Decide strategy based on query keywords
-    if any(k in user_query.lower() for k in ["image", "figure", "diagram", "picture", "chart", "graph"]):
-        strategy = "image search"
-    else:
-        strategy = "text search"
-
+    # Always use multimodal (images always retrieved in search.py)
+    strategy = "multimodal"
     print(f"DEBUG AGENT strategy: {strategy}")
     try:
         context = search(query=user_query, session_id=session_id, strategy=strategy, top_k_text=top_k_text, top_k_image=top_k_image)

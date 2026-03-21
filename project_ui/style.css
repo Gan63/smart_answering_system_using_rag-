@@ -655,11 +655,6 @@ button { font-family: var(--font); cursor: pointer; border: none; background: no
 }
 .msg-row.ai .msg-bubble pre code { background: none; padding: 0; color: var(--text-1); }
 
-.msg-bubble.success-upload {
-  background: rgba(0,229,160,0.15) !important;
-  border: 1px solid rgba(0,229,160,0.3) !important;
-}
- 
 /* Loading dots */
 .loading-dots { display: flex; gap: 5px; padding: 6px 0; align-items: center; }
 .loading-dots span {

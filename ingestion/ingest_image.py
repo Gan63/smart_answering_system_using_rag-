@@ -6,15 +6,26 @@ from models.embedding_model import embed_image
 
 def ingest_image(image_path, session_id: str):
     source_name = os.path.basename(image_path)
-    embedding = embed_image(image_path)
+    print(f"📸 Image uploaded: {source_name}")
+    try:
+        embedding = embed_image(image_path)
+        print("✅ Embedding created")
+    except Exception as e:
+        print(f"❌ Image embedding failed for {image_path}: {str(e)}")
+        return
 
     collection = get_image_collection()
 
-    collection.add(
-        ids=[str(uuid.uuid4())],
-        embeddings=[embedding],
-        documents=[image_path],
-        metadatas=[{"source": source_name, "session_id": session_id}]
-    )
+    try:
+        collection.add(
+            ids=[str(uuid.uuid4())],
+            embeddings=[embedding],
+            documents=[image_path],
+            metadatas=[{"source": source_name, "session_id": session_id, "timestamp": str(time.time())}]
+        )
+        print("✅ Stored in DB")
+    except Exception as e:
+        print(f"❌ Image add to Chroma failed: {str(e)}")
+        return
 
-    print("Image stored in ChromaDB")
+    print(f"🎉 Image processing complete for session {session_id}")

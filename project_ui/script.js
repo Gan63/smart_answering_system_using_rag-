@@ -39,6 +39,7 @@ const uploadStatus = document.getElementById('uploadStatus');
 const uploadMessage = document.getElementById('uploadMessage');
 
 /* ── INIT ── */
+console.log("🎉 JS LOADED - Frontend ready");
 bindEvents();
 setSidebarState(window.innerWidth > 640);
 loadChats();
@@ -203,6 +204,8 @@ async function uploadFile() {
         bar.style.width = '100%';
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        
+        showProcessingState(data);
 
         currentSession.sessionId = data.session_id;
         currentSession.filename = data.filename;
@@ -214,7 +217,6 @@ async function uploadFile() {
             uploadMessage.textContent = data.message;
             uploadMessage.style.display = 'block';
         }
-        uploadMessage.style.display = 'block';
         
         welcome.style.display = 'none';
         promptEl.disabled = false;
@@ -238,12 +240,10 @@ async function uploadFile() {
         uploadBtn.disabled = false;
         fileInput.value = '';
     }
-
-    // Processing state after successful upload
-    showProcessingState(data);
 }
 
 async function showProcessingState(data) {
+    if (!data?.filename) return;
     uploadStatus.textContent = '🔄 Processing document...';
     uploadStatus.className = 'upload-status processing';
     

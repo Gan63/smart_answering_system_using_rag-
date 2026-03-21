@@ -136,8 +136,13 @@ class ChatRequest(BaseModel):
 async def root():
     return FileResponse("project_ui/index.html")
 
+@app.get("/login")
+async def login():
+    return FileResponse("project_ui/login.html")
+
 @app.get("/health")
 async def health():
+    print("Health check OK")
     return {"status": "ok"}
 
 @app.get("/favicon.ico")
@@ -195,7 +200,7 @@ async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)
             buffer.write(await file.read())
         
         session_id = str(uuid.uuid4())
-        session_store.create_session(filename)
+        session_store.create_session(filename, session_id)
         
         ext = os.path.splitext(filename)[1].lower()
         
@@ -226,6 +231,52 @@ async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/upload-image")
+async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...), session_id: str = None):
+    print(f"🖼️ Direct image upload: {file.filename}")
+    try:
+        # Validate file type
+        if not file:
+            raise HTTPException(status_code=400, detail="No image uploaded")
+        
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ['.jpg', '.jpeg', '.png']:
+            raise HTTPException(status_code=400, detail="Only JPG/PNG supported")
+        
+        # Use provided session or create new
+        if session_id is None:
+            session_id = str(uuid.uuid4())
+            session_store.create_session("image_upload", session_id)
+        
+        # Save temp file for ingest_image (expects path)
+        filename = secure_filename(file.filename)
+        image_path = os.path.join(UPLOAD_FOLDER, f"uploaded_{int(time.time())}_{filename}")
+        with open(image_path, "wb") as buffer:
+            buffer.write(await file.read())
+        
+        print(f"💾 Image saved: {image_path}")
+        
+        def process_image():
+            try:
+                ingest_image(image_path, session_id)
+            except Exception as e:
+                print(f"❌ Image processing failed: {e}")
+        
+        background_tasks.add_task(process_image)
+        
+        return {
+            "session_id": session_id,
+            "filename": filename,
+            "image_path": f"/data/{filename}",
+            "message": "Image uploaded and processing..."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Image upload: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/history/{session_id}")
 async def get_history(session_id: str):
     try:
@@ -249,8 +300,10 @@ async def get_sessions():
             "sessions": [session.dict() for session in all_sessions]
         }
     except Exception as e:
+        print(f"/sessions ERROR: {e}")
+        import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"sessions": [], "error": "Sessions unavailable"}
 
 @app.get("/chats")
 async def get_chats():
@@ -271,8 +324,10 @@ async def get_chats():
             ]
         }
     except Exception as e:
+        print(f"/chats ERROR: {e}")
+        import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"chats": [], "error": "Chat store unavailable"}
 
 @app.get("/history/{user_id}")
 async def get_user_history(user_id: str):
@@ -318,9 +373,8 @@ async def chat_endpoint(request: ChatRequest):
             )
             print(f"Created new chat {request.chat_id} with title from file: {request.file_name or 'Untitled'}")
         else:
-            # Continue existing chat - append user message
             chat_store.append_message(request.chat_id, "user", request.message, [], [])
-            # Load for LLM
+            # Load for LLM - STRICT validation
             existing = chat_store.get_chat(request.chat_id)
             if not existing:
                 raise HTTPException(status_code=404, detail="Chat not found")
@@ -381,6 +435,8 @@ async def delete_chat(chat_id: str):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/session/{session_id}")
+async def delete_session(session_id: str):
     try:
         delete_session_data(session_id)
         return {"message": f"Session {session_id} deleted."}

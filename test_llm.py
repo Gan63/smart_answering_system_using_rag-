@@ -23,7 +23,7 @@ while True:
 
     try:
         response = client.chat.completions.create(
-            model="meta-llama/llama-3-8b-instruct",
+            model="meta-llama/llama-3.2-11b-vision-instruct",
             messages=[{"role": "user", "content": user_input}]
         )
         print("LLM:", response.choices[0].message.content)

@@ -43,7 +43,7 @@ def extract_text_and_images_from_docx(docx_path):
     
     return text.strip(), image_paths
 
-def chunk_text(text, chunk_size=500):
+def chunk_text(text, chunk_size=300):
     words = text.split()
     chunks = []
     for i in range(0, len(words), chunk_size):
@@ -65,13 +65,20 @@ def ingest_docx(docx_path, session_id: str):
         chunks = chunk_text(text)
         text_collection = get_text_collection()
         for chunk in chunks:
-            embedding = embed_text(chunk)
-            text_collection.add(
-                ids=[str(uuid.uuid4())],
-                embeddings=[embedding],
-                documents=[chunk],
-                metadatas=[{"source": source_name, "session_id": session_id}]
-            )
+            try:
+                embedding = embed_text(chunk)
+            except Exception as e:
+                print(f"Text embedding failed for DOCX chunk: {str(e)[:100]}")
+                continue
+            try:
+                text_collection.add(
+                    ids=[str(uuid.uuid4())],
+                    embeddings=[embedding],
+                    documents=[chunk],
+                    metadatas=[{"source": source_name, "session_id": session_id}]
+                )
+            except Exception as e:
+                print(f"Text add to Chroma failed: {str(e)[:100]}")
         print(f"Stored {len(chunks)} text chunks in ChromaDB")
     
     # Ingest images
@@ -79,13 +86,20 @@ def ingest_docx(docx_path, session_id: str):
         source_name = os.path.basename(docx_path)
         image_collection = get_image_collection()
         for image_path in image_paths:
-            embedding = embed_image(image_path)
-            image_collection.add(
-                ids=[str(uuid.uuid4())],
-                embeddings=[embedding],
-                documents=[image_path],
-                metadatas=[{"source": source_name, "session_id": session_id}]
-            )
+            try:
+                embedding = embed_image(image_path)
+            except Exception as e:
+                print(f"Image embedding failed for {image_path}: {str(e)[:100]}")
+                continue
+            try:
+                image_collection.add(
+                    ids=[str(uuid.uuid4())],
+                    embeddings=[embedding],
+                    documents=[image_path],
+                    metadatas=[{"source": source_name, "session_id": session_id}]
+                )
+            except Exception as e:
+                print(f"Image add to Chroma failed: {str(e)[:100]}")
         print(f"Stored {len(image_paths)} images in ChromaDB")
     
     print("DOCX ingestion complete!")
