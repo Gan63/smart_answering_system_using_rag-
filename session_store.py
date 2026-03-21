@@ -1,11 +1,15 @@
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
+from utils.chat_history import ChatMessage, serialize_history
 
 class SessionInfo(BaseModel):
     filename: str
     created_at: float
     session_id: str
+    chat_history: List[Dict[str, Any]] = []
+    message_count: int = 0
+    total_tokens: int = 0
 
 class SessionStore:
     def __init__(self):
@@ -25,6 +29,47 @@ class SessionStore:
 
     def get_all_sessions(self) -> list[SessionInfo]:
         return list(self.sessions.values())
+
+    def increment_message_count(self, session_id: str) -> bool:
+        session = self.get_session(session_id)
+        if session:
+            session.message_count += 1
+            return True
+        return False
+
+    def add_tokens(self, session_id: str, tokens: Dict[str, int]) -> bool:
+        session = self.get_session(session_id)
+        if session and 'total_tokens' in tokens:
+            session.total_tokens += tokens['total_tokens']
+            return True
+        return False
+
+    def add_message(self, session_id: str, query: str, answer: str, 
+                   context: Dict[str, Any], images: List[Dict[str, Any]], 
+                   tokens: Dict[str, int]) -> bool:
+        session = self.get_session(session_id)
+        if session:
+            import time
+            timestamp = time.time()
+            message = {
+                'query': query,
+                'answer': answer,
+                'context': context,
+                'images': images,
+                'timestamp': timestamp,
+                'tokens': tokens
+            }
+            session.chat_history.append(message)
+            self.increment_message_count(session_id)
+            self.add_tokens(session_id, tokens)
+            return True
+        return False
+
+    def get_history(self, session_id: str) -> Optional[List[ChatMessage]]:
+        session = self.get_session(session_id)
+        if session and session.chat_history:
+            return serialize_history(session.chat_history)
+        return None
 
     def delete_session(self, session_id: str) -> bool:
         if session_id in self.sessions:

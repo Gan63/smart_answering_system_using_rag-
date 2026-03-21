@@ -1,19 +1,26 @@
-import base64
 import os
+import time
 import uvicorn
 import traceback
 import uuid
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from werkzeug.utils import secure_filename
 from openai import OpenAI
 from agent.planner import agent_query
 from ingestion.ingest_pdf import ingest_pdf
+from ingestion.ingest_docx import ingest_docx
+from ingestion.ingest_image import ingest_image
 from database.chroma_client import delete_session_data
 from session_store import session_store
+from utils.token_counter import count_tokens_from_response
+from utils.session_manager import add_to_history, get_chat_history, get_session_stats
+from utils.chat_store import chat_store
+from typing import Optional
+from agent.planner import agent_query
 from contextlib import asynccontextmanager
 
 # =========================
@@ -31,21 +38,19 @@ async def lifespan(app: FastAPI):
         raise ValueError("[X] Please set OPENROUTER_API_KEY")
 
     llm_client = OpenAI(
-        api_key="enter your api_key",
-        base_url="enter your url"
+        api_key="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",
+        base_url="https://openrouter.ai/api/v1"
     )
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    pass  # Startup complete
     yield
     # Shutdown
-    pass  # Shutdown
+    pass
 
 # =========================
 # 🚀 FASTAPI SETUP
 # =========================
 app = FastAPI(lifespan=lifespan)
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -54,39 +59,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static files
 app.mount("/static", StaticFiles(directory="project_ui"), name="static")
 app.mount("/data", StaticFiles(directory="data", html=False), name="data")
 
 # =========================
-# 🤖 LLM FUNCTION
+# 🤖 LLM FUNCTION - Smart RAG Assistant (EXACT SPEC)
 # =========================
-def ask_llm(text_context, image_context, question):
+def ask_llm(text_context: str, images: list, question: str):
+    """
+    Smart RAG Assistant - follows exact rules from task.
+    """
+    image_keywords = ["show image", "diagram", "figure", "visual"]
+    question_lower = question.lower()
+    show_images = any(keyword in question_lower for keyword in image_keywords)     
     try:
         messages = []
-        if image_context and os.path.exists(image_context):
-            with open(image_context, "rb") as image_file:
-                encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
-            
-            messages.append({
-                "type": "text",
-                "text": f"Use the following context to answer the question.\n\nText Context:\n{text_context}\n\nQuestion:\n{question}"
-            })
-            messages.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{encoded_image}"}
-            })
-            model = "openai/gpt-4o-mini"
-        else:
-            messages.append({
-                "type": "text",
-                "text": f"Use the following context to answer the question.\n\nContext:\n{text_context}\n\nQuestion:\n{question}"
-            })
-            model = "meta-llama/llama-3-8b-instruct"
 
+        # Conditional image context (JSON ready)
+        image_context_str = ""
+        if show_images and images:
+            image_list = []
+            for img in images[:3]:
+                # Full URL for /data mount
+                url = img["path"].replace("data/", "/data/")
+                caption = img.get("caption", "Relevant image")
+                image_list.append(f'  {{"url": "{url}", "caption": "{caption}"}}')
+            image_context_str = f"""Available Images (use exactly):
+[
+{chr(10).join(image_list)}
+]"""
+
+        prompt_text = f"""Context:
+{text_context}
+
+{image_context_str}
+
+Question: {question}"""
+        
+        messages.append({"role": "user", "content": prompt_text})
+
+        # Text-only model
+        model = "meta-llama/llama-3-8b-instruct"
+        
         response = llm_client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": messages}]
+            messages=messages,
+            temperature=0.1
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -99,6 +117,17 @@ def ask_llm(text_context, image_context, question):
 class AskRequest(BaseModel):
     question: str
     session_id: str
+    top_k_text: int = 10
+    top_k_image: int = 1
+
+class ChatRequest(BaseModel):
+    chat_id: Optional[str] = None
+    message: str
+    session_id: str
+    file_name: Optional[str] = None
+    user_id: str = "default"
+    top_k_text: int = 10
+    top_k_image: int = 1
 
 # =========================
 # 🌐 ROUTES
@@ -116,86 +145,249 @@ async def favicon():
     from fastapi.responses import Response
     return Response(status_code=204)
 
+@app.post("/query")
+async def query_endpoint(request: AskRequest):
+    try:
+        context = agent_query(request.question, request.session_id, request.top_k_text, request.top_k_image)
+        
+        if not context or not context.get('text_context'):
+            return {"answer": "No relevant information found in the document. Try rephrasing your question after ingestion completes.", "error": "No context", "images": [], "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+
+        text_context = context.get("text_context", "")
+        images_list = context.get("images", [])
+        answer = ask_llm(
+            text_context=text_context,
+            images=images_list,
+            question=request.question
+        )
+        tokens = count_tokens_from_response(llm_client.chat.completions.create(
+            model="meta-llama/llama-3-8b-instruct",
+            messages=[{"role": "user", "content": f"""Context:
+{text_context}
+
+Question: {request.question}"""}],
+            temperature=0.1
+        ))
+        add_to_history(request.session_id, request.question, answer, context, images_list, tokens)
+        return {
+            "answer": answer,
+            "context": context,
+            "images": images_list,
+            "tokens": tokens
+        }
+    except Exception as e:
+        print(f"DEBUG FULL ERROR in query: {str(e)}")
+        traceback.print_exc()
+        return {"answer": f"Server error: {str(e)}", "error": str(e), "images": []}
+
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    pass  # Upload hit
-    pass  # Filename logged
-    pass
+async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    print(f"📤 Upload hit: {file.filename}")
     try:
         if not file:
             raise HTTPException(status_code=400, detail="No file uploaded")
 
         filename = secure_filename(file.filename)
         file_path = os.path.join(UPLOAD_FOLDER, filename)
-
+        
+        print(f"💾 Saving {filename}...")
         with open(file_path, "wb") as buffer:
             buffer.write(await file.read())
- 
-        session_id = str(uuid.uuid4())
         
-        pass
-        ingest_pdf(pdf_path=file_path, session_id=session_id)
-        pass
+        session_id = str(uuid.uuid4())
         session_store.create_session(filename)
         
-        pass
-        return {
-            "message": f"✅ {filename} uploaded successfully. Ask queries related to this document.",
-            "session_id": session_id,
-            "filename": filename
-        }
+        ext = os.path.splitext(filename)[1].lower()
+        
+        def ingest_file():
+            try:
+                if ext == '.pdf':
+                    ingest_pdf(file_path, session_id)
+                elif ext == '.docx':
+                    ingest_docx(file_path, session_id)
+                elif ext in ['.png', '.jpg', '.jpeg', '.gif']:
+                    ingest_image(file_path, session_id)
+                else:
+                    raise ValueError(f"Unsupported file type: {ext}")
+                print(f"✅ Ingestion complete for {filename}")
+            except Exception as e:
+                print(f"❌ Ingestion failed for {filename}: {e}")
 
+        print(f"🚀 Starting background ingestion...")
+        background_tasks.add_task(ingest_file)
+        
+        return {
+            "session_id": session_id,
+            "filename": filename,
+            "message": "Document uploaded. Processing..."
+        }
     except Exception as e:
         print(f"[ERROR] Upload: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.post("/query")
-async def query(request: AskRequest):
-    print(f"DEBUG QUERY - session_id: '{request.session_id}' question: '{request.question[:50]}...'")
-    if not request.session_id:
-        return {"answer": "Please upload a document first.", "error": "No session"}
-
+@app.get("/history/{session_id}")
+async def get_history(session_id: str):
     try:
-        context = agent_query(user_query=request.question, session_id=request.session_id)
-        print(f"DEBUG context keys: {list(context.keys()) if context else None}")
-        print(f"DEBUG text_context len: {len(context.get('text_context', '')) if context else 0}")
-        print(f"DEBUG image_context: {context.get('image_context')}")
-        
-        if not context or not context.get('text_context'):
-            return {"answer": "No relevant information found in the document. Try rephrasing.", "error": "No context", "context": context or {}}
+        history = get_chat_history(session_id)
+        stats = get_session_stats(session_id)
+        if history:
+            return {
+                "history": [msg.dict() for msg in history],
+                "stats": stats or {}
+            }
+        return {"history": [], "stats": stats or {}}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
-        answer = ask_llm(
-            text_context=context.get("text_context"),
-            image_context=context.get("image_context"),
-            question=request.question
-        )
+@app.get("/sessions")
+async def get_sessions():
+    try:
+        all_sessions = session_store.get_all_sessions()
         return {
-            "answer": answer,
-            "context": context,
-            "image_paths": context.get("image_paths", [])
+            "sessions": [session.dict() for session in all_sessions]
         }
     except Exception as e:
-        print(f"DEBUG FULL ERROR in query: {str(e)}")
-        import traceback
         traceback.print_exc()
-        return {"answer": f"Server error: {str(e)}", "error": str(e), "context": {}}
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-
-
-@app.delete("/session/{session_id}")
-async def delete_session(session_id: str):
+@app.get("/chats")
+async def get_chats():
+    """List all chats for user."""
     try:
-        delete_session_data(session_id)
-        return {"message": f"✅ Session {session_id} and its data have been deleted."}
+        chats = chat_store.get_chats()
+        print(f"Serving {len(chats)} chats to frontend")
+        return {
+            "chats": [
+                {
+                    "chat_id": c.chat_id,
+                    "title": c.title,
+                    "timestamp": c.timestamp,
+                    "message_count": len(c.messages),
+                    "last_message": c.messages[-1]["content"][:50] + "..." if c.messages else ""
+                }
+                for c in chats
+            ]
+        }
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to delete session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# =========================
-# ▶️ RUN
-# =========================
+@app.get("/history/{user_id}")
+async def get_user_history(user_id: str):
+    """Get chat history for specific user."""
+    try:
+        chats = chat_store.get_chats(user_id)
+        return {
+            "user_id": user_id,
+            "chats": [
+                {
+                    "chat_id": c.chat_id,
+                    "title": c.title,
+                    "timestamp": c.timestamp,
+                    "message_count": len(c.messages)
+                }
+                for c in chats
+            ]
+        }
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    try:
+        # RAG context
+        context = agent_query(request.message, request.session_id, request.top_k_text, request.top_k_image)
+        if not context or not context.get('text_context'):
+            context = {"text_context": "", "images": []}
+
+        text_context = context.get("text_context", "")
+        images_list = context.get("images", [])
+        sources = context.get("text_results", [{}]) if "text_results" in context else []
+
+        # Chat logic
+        if request.chat_id is None:
+            # New chat - create with user message
+            request.chat_id = chat_store.create_chat(
+                request.file_name or "Untitled", 
+                request.message, 
+                request.session_id, 
+                request.user_id
+            )
+            print(f"Created new chat {request.chat_id} with title from file: {request.file_name or 'Untitled'}")
+        else:
+            # Continue existing chat - append user message
+            chat_store.append_message(request.chat_id, "user", request.message, [], [])
+            # Load for LLM
+            existing = chat_store.get_chat(request.chat_id)
+            if not existing:
+                raise HTTPException(status_code=404, detail="Chat not found")
+
+        # LLM with full conversation memory
+        chat_msgs = chat_store.get_chat(request.chat_id).messages
+        messages = [{"role": "system", "content": f"Use this context: {text_context}\nImages: {images_list}"}]
+        for m in chat_msgs:
+            messages.append({"role": m["role"], "content": m["content"]})
+        messages.append({"role": "user", "content": request.message})
+
+        response = llm_client.chat.completions.create(
+            model="meta-llama/llama-3-8b-instruct",
+            messages=messages,
+            temperature=0.1
+        )
+        answer = response.choices[0].message.content
+
+        # Store assistant response (sources/images)
+        source_paths = [s.get('document', '') for s in sources if 'document' in s]
+        chat_store.append_message(request.chat_id, "assistant", answer, source_paths, [img['path'] for img in images_list])
+
+        tokens = count_tokens_from_response(response)
+
+        return {
+            "response": answer,
+            "chat_id": request.chat_id,
+            "tokens": tokens,
+            "sources": source_paths,
+            "images": images_list
+        }
+    except Exception as e:
+        print(f"Chat error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/chat/{chat_id}")
+async def get_full_chat(chat_id: str):
+    try:
+        chat = chat_store.get_chat(chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        return {"chat": chat.dict()}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/chat/{chat_id}")
+async def delete_chat(chat_id: str):
+    try:
+        success = chat_store.delete_chat(chat_id)
+        if success:
+            print(f"Deleted chat {chat_id}")
+            return {"message": f"Chat {chat_id} deleted successfully."}
+        else:
+            raise HTTPException(status_code=404, detail="Chat not found")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        delete_session_data(session_id)
+        return {"message": f"Session {session_id} deleted."}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+

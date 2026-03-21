@@ -15,8 +15,8 @@ if not api_key:
     exit(1)
 
 llm_client = OpenAI(
-    api_key="enter your api_key",
-    base_url="enter your url "
+    api_key="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",
+    base_url="https://openrouter.ai/api/v1"
 )
 
 def ask_llm(context, question):

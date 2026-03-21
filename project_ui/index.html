@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -33,22 +33,9 @@
         </div>
       </div>
  
-      <!-- Upload PDF in sidebar -->
-      <div class="sb-upload">
-        <input type="file" id="fileInput" accept=".pdf,.docx" style="display:none">
-          <button class="sb-upload-btn" id="uploadBtn">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-          Upload PDF
-        </button>
-        <div id="uploadStatus" class="upload-status"></div>
-        <div id="uploadMessage" class="upload-message" style="display:none"></div>
-        <!-- Upload progress -->
-        <div class="upload-progress-wrap" id="uploadProgressWrap" style="display:none">
-          <div class="upload-progress-bar" id="uploadProgressBar"></div>
-        </div>
-      </div>
+
  
-      <div class="sb-section-label">Chat History</div>
+      <div class="sb-section-label">Chats & Sessions</div>
       <div class="sb-scroll" id="historyContainer"></div>
  
       <div class="sb-footer">
@@ -130,8 +117,8 @@
         <div class="input-box" id="inputBox">
 
     <!-- Upload Icon -->
-    <label for="fileInput" class="icon upload-icon">➕</label>
-    <input type="file" id="fileInput" hidden>
+<input type="file" id="fileInput" accept=".pdf,.docx" hidden>
+<button type="button" id="uploadBtn" class="icon upload-icon" title="Upload document">➕</button>
 
     <!-- Single Textarea -->
           <textarea id="prompt" placeholder="Message Smart RAG Assistant…" rows="1"></textarea>
@@ -147,8 +134,14 @@
           fill="currentColor"/>
       </svg>
           </button>
-
         </div>
+
+        <!-- Upload Progress -->
+        <div id="uploadProgressWrap" class="upload-progress-wrap" style="display:none;">
+          <div id="uploadProgressBar" class="upload-progress-bar"></div>
+        </div>
+        <div id="uploadStatus" class="upload-status"></div>
+        <div id="uploadMessage" class="upload-message" style="display:none;"></div>
 
   <p class="disclaimer">
     Smart RAG can make mistakes. Verify important information.
@@ -166,7 +159,8 @@
     </div>
   </div>
  
-  <script src="/static/script.js"></script>
+  <script src="/static/chat_fixed.js"></script>
 </body>
 </html>
+
  

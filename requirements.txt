@@ -8,3 +8,4 @@ uv add openai
 uv add numpy
 uv add accelerate
 uv add multipart
+uv add python docx 

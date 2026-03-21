@@ -2,9 +2,10 @@ from database.chroma_client import get_text_collection, get_image_collection
 from models.embedding_model import embed_clip_text, embed_text
 from retrieval.reranker import rerank
 
-def search(query: str, session_id: str, strategy: str = "text search"):
+def search(query: str, session_id: str, strategy: str = "text search", top_k_text: int = 10, top_k_image: int = 1):
     """
     Searches for a query in the database, filtered by session_id.
+    Configurable top_k for improved accuracy.
     """
     if not session_id:
         raise ValueError("session_id is required for search.")
@@ -20,7 +21,7 @@ def search(query: str, session_id: str, strategy: str = "text search"):
     print(f"DEBUG SEARCH text query...")
     text_results = text_collection.query(
         query_embeddings=[embed_text(query)],
-        n_results=10,
+        n_results=top_k_text,
         where={"session_id": session_id},
         include=["documents"]
     )
@@ -41,7 +42,7 @@ def search(query: str, session_id: str, strategy: str = "text search"):
             clip_embedding = embed_clip_text(query)
             image_results = image_collection.query(
                 query_embeddings=[clip_embedding],
-                n_results=1,
+                n_results=top_k_image,
                 where={"session_id": session_id},
                 include=["documents"]
             )
