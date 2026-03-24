@@ -1,0 +1,76 @@
+erDiagram
+    USER {
+        int user_id PK
+        string name
+        string email
+        datetime created_at
+    }
+    
+    CHATSESSION {
+        int session_id PK
+        int user_id FK
+        datetime created_at
+    }
+    
+    MESSAGE {
+        int message_id PK
+        int session_id FK
+        string sender
+        string content
+        datetime timestamp
+    }
+    
+    DOCUMENT {
+        int doc_id PK
+        int user_id FK
+        string file_path
+    }
+    
+    IMAGE {
+        int image_id PK
+        int user_id FK
+        string file_path
+    }
+    
+    EMBEDDING {
+        int embedding_id PK
+        string vector_data
+        string type
+    }
+    
+    VECTORSTORE {
+        int vector_id PK
+    }
+    
+    QUERY {
+        int query_id PK
+        string query_text
+    }
+    
+    RESPONSE {
+        int response_id PK
+        string response_text
+    }
+    
+    MODEL {
+        int model_id PK
+        string model_name
+    }
+    
+    FILESTORAGE {
+        int storage_id PK
+        string file_location
+    }
+    
+    USER ||--o{ CHATSESSION : has
+    CHATSESSION ||--o{ MESSAGE : contains
+    USER ||--o{ DOCUMENT : uploads
+    USER ||--o{ IMAGE : uploads
+    DOCUMENT ||--o{ EMBEDDING : generates
+    IMAGE ||--o{ EMBEDDING : generates
+    EMBEDDING ||--|| VECTORSTORE : stored_in
+    QUERY ||--|| RESPONSE : produces
+    QUERY ||--|| MODEL : uses
+    DOCUMENT ||--|| FILESTORAGE : stored_in
+    IMAGE ||--|| FILESTORAGE : stored_in
+

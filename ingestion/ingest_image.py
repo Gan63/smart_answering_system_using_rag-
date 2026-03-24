@@ -1,12 +1,12 @@
 import os
+import time
 import uuid
 from database.chroma_client import get_image_collection
 from models.embedding_model import embed_image
 
-
 def ingest_image(image_path, session_id: str):
     source_name = os.path.basename(image_path)
-    print(f"📸 Image uploaded: {source_name}")
+    print(f"📸 Processing image: {source_name} (session: {session_id})")
     try:
         embedding = embed_image(image_path)
         print("✅ Embedding created")
@@ -21,7 +21,7 @@ def ingest_image(image_path, session_id: str):
             ids=[str(uuid.uuid4())],
             embeddings=[embedding],
             documents=[image_path],
-            metadatas=[{"source": source_name, "session_id": session_id, "timestamp": str(time.time())}]
+            metadatas=[{"source": source_name, "session_id": session_id, "type": "image", "timestamp": str(time.time())}]
         )
         print("✅ Stored in DB")
     except Exception as e:
@@ -29,3 +29,4 @@ def ingest_image(image_path, session_id: str):
         return
 
     print(f"🎉 Image processing complete for session {session_id}")
+

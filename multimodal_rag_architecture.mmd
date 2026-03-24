@@ -1,0 +1,39 @@
+flowchart TD
+    A[User<br/>Frontend UI] --> B[FastAPI Backend<br/>app.py]
+    B --> C[File Upload<br/>PDF/DOCX/Image]
+    C --> D[Ingestion Pipeline]
+    D --> E1[PDF<br/>ingest_pdf.py]
+    D --> E2[DOCX<br/>ingest_docx.py<br/>Extract text+images]
+    D --> E3[Image<br/>ingest_image.py]
+    E1 --> F[Text Chunks<br/>+ Embeddings]
+    E2 --> F
+    E3 --> G[Image Embeddings<br/>CLIP]
+    F --> H[ChromaDB<br/>Text Collection]
+    G --> I[ChromaDB<br/>Image Collection]
+    
+    A --> J[Query<br\>/query /chat]
+    J --> K[Search<br/>retrieval/search.py]
+    K --> L[Text Search<br/>Text Embeddings]
+    K --> M[Image Search<br/>CLIP Embeddings]
+    L --> H
+    M --> I
+    H --> N[Context<br/>Text + Sources]
+    I --> O[Relevant Images]
+    N --> P[AI Router<br/>utils/ai_router.py]
+    O --> P
+    P --> Q{Images Present?}
+    Q -->|Yes| R[Vision LLM<br/>Llama 3.2 Vision<br/>Describe + Answer]
+    Q -->|No| S[Text LLM<br/>Llama 3 Instruct]
+    R --> T[Answer + Image Desc]
+    S --> T
+    T --> U[Chat Store<br/>utils/chat_store.py]
+    T --> V[Session Store]
+    U --> A
+    V --> A
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style H fill:#e8f5e8
+    style I fill:#e8f5e8
+    style T fill:#fff3e0
+

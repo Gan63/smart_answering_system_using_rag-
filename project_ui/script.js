@@ -387,7 +387,7 @@ function bindEvents() {
         if (chatItem && chatItem.dataset.chatId) {
           e.stopPropagation();
           e.preventDefault();
-          deleteChat(chatItem.dataset.chatId);
+          deleteChatNew(chatItem.dataset.chatId);  // Use NEW handler with /delete_chat
           return;
         }
       }
@@ -603,5 +603,38 @@ async function deleteChat(chat_id) {
     console.log('Deleted chat:', chat_id);
   } catch (e) {
     console.error('Delete chat error:', e);
+  }
+}
+
+async function deleteChatNew(chat_id) {
+  /**
+   * NEW delete handler for /delete_chat endpoint (task requirement)
+   */
+  if (!confirm('Delete this chat? This action cannot be undone.')) return;
+  
+  try {
+    const res = await fetch(`/delete_chat/${chat_id}`, {
+      method: 'DELETE'
+    });
+    
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.detail || errorData.message || `HTTP ${res.status}`);
+    }
+    
+    const data = await res.json();
+    console.log('Delete success:', data);
+    
+    // If active chat deleted, reset to new chat
+    if (currentChatId === chat_id) {
+      newChat();
+    }
+    
+    // Refresh chat list
+    await loadChats();
+    
+  } catch (e) {
+    console.error('Delete chat NEW error:', e);
+    alert(`Delete failed: ${e.message}`);
   }
 }

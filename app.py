@@ -20,7 +20,6 @@ from utils.token_counter import count_tokens_from_response
 from utils.session_manager import add_to_history, get_chat_history, get_session_stats
 from utils.chat_store import chat_store
 from typing import Optional
-from agent.planner import agent_query
 from contextlib import asynccontextmanager
 
 # =========================
@@ -32,19 +31,16 @@ UPLOAD_FOLDER = "data"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     global llm_client
     if not OPENROUTER_API_KEY:
         raise ValueError("[X] Please set OPENROUTER_API_KEY")
 
     llm_client = OpenAI(
-        api_key="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",
+        api_key="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",
         base_url="https://openrouter.ai/api/v1"
     )
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     yield
-    # Shutdown
-    pass
 
 # =========================
 # 🚀 FASTAPI SETUP
@@ -69,10 +65,11 @@ def ask_llm(text_context: str, images: list, question: str):
     """
     Smart RAG Assistant - follows exact rules from task.
     """
-    image_keywords = ["show image", "diagram", "figure", "visual"]
-    question_lower = question.lower()
-    show_images = any(keyword in question_lower for keyword in image_keywords)     
     try:
+        image_keywords = ["show image", "diagram", "figure", "visual"]
+        question_lower = question.lower()
+        show_images = any(keyword in question_lower for keyword in image_keywords)
+
         messages = []
 
         # Conditional image context (JSON ready)
@@ -80,7 +77,6 @@ def ask_llm(text_context: str, images: list, question: str):
         if show_images and images:
             image_list = []
             for img in images[:3]:
-                # Full URL for /data mount
                 url = img["path"].replace("data/", "/data/")
                 caption = img.get("caption", "Relevant image")
                 image_list.append(f'  {{"url": "{url}", "caption": "{caption}"}}')
@@ -98,7 +94,6 @@ Question: {question}"""
         
         messages.append({"role": "user", "content": prompt_text})
 
-        # Text-only model
         model = "meta-llama/llama-3-8b-instruct"
         
         response = llm_client.chat.completions.create(
@@ -165,14 +160,15 @@ async def query_endpoint(request: AskRequest):
             images=images_list,
             question=request.question
         )
-        tokens = count_tokens_from_response(llm_client.chat.completions.create(
+        tokens_response = llm_client.chat.completions.create(
             model="meta-llama/llama-3-8b-instruct",
             messages=[{"role": "user", "content": f"""Context:
 {text_context}
 
 Question: {request.question}"""}],
             temperature=0.1
-        ))
+        )
+        tokens = count_tokens_from_response(tokens_response)
         add_to_history(request.session_id, request.question, answer, context, images_list, tokens)
         return {
             "answer": answer,
@@ -192,28 +188,31 @@ async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)
         if not file:
             raise HTTPException(status_code=400, detail="No file uploaded")
 
+        content_type = file.content_type.lower() if file.content_type else ''
         filename = secure_filename(file.filename)
         file_path = os.path.join(UPLOAD_FOLDER, filename)
         
-        print(f"💾 Saving {filename}...")
+        print(f"💾 Saving {filename} (content_type: {content_type})")
         with open(file_path, "wb") as buffer:
             buffer.write(await file.read())
         
         session_id = str(uuid.uuid4())
         session_store.create_session(filename, session_id)
         
-        ext = os.path.splitext(filename)[1].lower()
-        
         def ingest_file():
             try:
-                if ext == '.pdf':
+                print(f"🔍 Dispatching {filename}: content_type='{content_type}'")
+                if content_type == 'application/pdf':
+                    print("📄 → ingest_pdf (unchanged)")
                     ingest_pdf(file_path, session_id)
-                elif ext == '.docx':
-                    ingest_docx(file_path, session_id)
-                elif ext in ['.png', '.jpg', '.jpeg', '.gif']:
+                elif content_type in ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']:
+                    print("🖼️ → ingest_image")
                     ingest_image(file_path, session_id)
+                elif os.path.splitext(filename)[1].lower() == '.docx':
+                    print("📝 → ingest_docx (ext fallback)")
+                    ingest_docx(file_path, session_id)
                 else:
-                    raise ValueError(f"Unsupported file type: {ext}")
+                    raise ValueError(f"Unsupported: content_type='{content_type}', ext={os.path.splitext(filename)[1]}")
                 print(f"✅ Ingestion complete for {filename}")
             except Exception as e:
                 print(f"❌ Ingestion failed for {filename}: {e}")
@@ -224,7 +223,8 @@ async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)
         return {
             "session_id": session_id,
             "filename": filename,
-            "message": "Document uploaded. Processing..."
+            "content_type": content_type,
+            "message": "File uploaded. Processing..."
         }
     except Exception as e:
         print(f"[ERROR] Upload: {e}")
@@ -309,7 +309,7 @@ async def get_sessions():
 async def get_chats():
     """List all chats for user."""
     try:
-        chats = chat_store.get_chats()
+        chats = chat_store.get_chats(user_id="default")
         print(f"Serving {len(chats)} chats to frontend")
         return {
             "chats": [
@@ -333,7 +333,7 @@ async def get_chats():
 async def get_user_history(user_id: str):
     """Get chat history for specific user."""
     try:
-        chats = chat_store.get_chats(user_id)
+        chats = chat_store.get_chats(user_id="default")
         return {
             "user_id": user_id,
             "chats": [
@@ -348,7 +348,7 @@ async def get_user_history(user_id: str):
         }
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"chats": [], "error": "Chat history unavailable"}
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
@@ -434,6 +434,24 @@ async def delete_chat(chat_id: str):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/delete_chat/{chat_id}")
+async def delete_chat_new(chat_id: str):
+    """
+    NEW endpoint for delete chat as per task requirements
+    """
+    try:
+        success = chat_store.delete_chat(chat_id)
+        if success:
+            print(f"Deleted chat {chat_id} via /delete_chat")
+            return {"success": True, "message": f"Chat {chat_id} deleted successfully."}
+        else:
+            raise HTTPException(status_code=404, detail="Chat not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 @app.delete("/session/{session_id}")
 async def delete_session(session_id: str):
