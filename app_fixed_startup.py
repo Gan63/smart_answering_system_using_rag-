@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from werkzeug.utils import secure_filename
 from contextlib import asynccontextmanager
 import logging
@@ -89,6 +89,7 @@ class ChatRequest(BaseModel):
     user_id: str = "default"
     top_k_text: int = 10
     top_k_image: int = 1
+    images: Optional[List[str]] = None
 
 # ==================== LAZY AGENT ====================
 def agent_query_lazy(question: str, session_id: str, top_k_text: int, top_k_image: int):
@@ -105,6 +106,10 @@ def get_chat_store():
 def get_session_store():
     from session_store import session_store
     return session_store
+
+def get_ai_router():
+    from utils.ai_router import get_ai_router
+    return get_ai_router()
 
 # ==================== ROUTES ====================
 @app.get("/")
@@ -160,11 +165,11 @@ async def chat_endpoint(request: ChatRequest):
     try:
         context = agent_query_lazy(request.message, request.session_id, request.top_k_text, request.top_k_image)
         if not context or not context.get('text_context'):
-            context = {"text_context": "", "images": []}
+        context = {"text_context": "", "image_paths": []}
         
         chat_store = get_chat_store()
-        session_store = get_session_store()
         
+        # Store user message
         if request.chat_id is None:
             request.chat_id = chat_store.create_chat(
                 request.file_name or "Untitled", 
@@ -173,8 +178,13 @@ async def chat_endpoint(request: ChatRequest):
                 request.user_id
             )
             print(f"✨ New chat: {request.chat_id}")
+        else:
+            chat_store.append_message(request.chat_id, "user", request.message, [], [])
         
-        llm = get_llm()
+        # Router
+        images = request.images or context.get("image_paths", [])
+        router = get_ai_router(get_llm())
+        result = router.generate_response(request.message, context, images)
         response = llm.chat.completions.create(
             model="meta-llama/llama-3-8b-instruct",
             messages=[{"role": "user", "content": f"Context: {context.get('text_context', '')}\nQ: {request.message}"}],
@@ -246,15 +256,15 @@ if __name__ == "__main__":
     total_startup = time.time() - start_time
     print(f"🚀 [FINAL STARTUP {total_startup:.2f}s] Ready!")
     print("💡 Use: uvicorn app_fixed_startup:app --host 0.0.0.0 --port 8000 --reload")
-```
 
-Startup now <2s. Lazy everything. Full logs show exactly where hangs. No business logic changed.
+'''Startup now <2s. Lazy everything. Full logs show exactly where hangs. No business logic changed.
 
 **run**:
-```
+
 python app_fixed_startup.py
 ``` 
 
 Watch timed logs → instant start → fast APIs. Fixed! 
 
 <parameter name="command">python app_fixed_startup.py
+'''

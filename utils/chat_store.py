@@ -11,6 +11,7 @@ class Message(BaseModel):
     content: str
     sources: Optional[List[str]] = None
     images: Optional[List[str]] = None
+    used_vision: bool = False
 
 class Chat(BaseModel):
     chat_id: str
@@ -56,7 +57,7 @@ class ChatStore:
         # Title: file basename without extension
         title = os.path.splitext(os.path.basename(file_name))[0] if file_name else "Untitled"
         timestamp = time.time()
-        messages = [{"role": "user", "content": first_message, "sources": [], "images": []}]
+        messages = [{"role": "user", "content": first_message, "sources": [], "images": [], "used_vision": False}]
         chat_data = {
             "chat_id": chat_id,
             "title": title,
@@ -91,7 +92,7 @@ class ChatStore:
                 return Chat(**chat_dict)
         return None
 
-    def append_message(self, chat_id: str, role: str, content: str, sources: List[str] = None, images: List[str] = None) -> bool:
+    def append_message(self, chat_id: str, role: str, content: str, sources: List[str] = None, images: List[str] = None, used_vision: bool = False) -> bool:
         """Append message to chat."""
         init_json()
         data = load_data()
@@ -101,7 +102,8 @@ class ChatStore:
                     "role": role,
                     "content": content,
                     "sources": sources or [],
-                    "images": images or []
+                    "images": images or [],
+                    "used_vision": used_vision
                 }
                 chat_dict["messages"].append(new_msg)
                 save_data(data)

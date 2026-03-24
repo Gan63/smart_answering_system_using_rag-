@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multimodal AI Assistant</title>
+  <link rel="stylesheet" href="/static/multimodal.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🖼️ Multimodal AI Assistant</h1>
+      <p>Upload an image and ask questions. Analyzes objects, text, diagrams automatically.</p>
+    </header>
+
+    <div class="upload-area" id="uploadArea">
+      <div class="upload-zone" id="uploadZone">
+        <svg class="upload-icon" viewBox="0 0 48 48" fill="none">
+          <path d="M18 30L24 24M24 24L30 30M24 24V38M28 10H38V28M26 12L34 20M38 20H26" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p>Click to upload image<br><small>JPG, PNG only (max 10MB)</small></p>
+        <input type="file" id="imageInput" accept="image/jpeg,image/png" hidden>
+      </div>
+      <div class="image-preview" id="imagePreview" style="display: none;">
+        <img id="previewImg" alt="Preview">
+        <button class="clear-btn" id="clearImage">✕ Clear</button>
+      </div>
+    </div>
+
+    <div class="question-area">
+      <textarea id="questionInput" placeholder="Ask about the image (e.g. 'What is written on the sign?' or 'Describe the diagram')" rows="3"></textarea>
+      <button id="analyzeBtn" disabled>Analyze Image + Question</button>
+    </div>
+
+    <div class="results" id="results" style="display: none;">
+      <div class="result-section">
+        <h3>📝 Answer</h3>
+        <div id="answer"></div>
+      </div>
+      <div class="result-section">
+        <h3>👁️ Image Description</h3>
+        <div id="description"></div>
+      </div>
+      <div class="meta">
+        <span id="visionUsed"></span>
+        <span id="imageInfo"></span>
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script src="/static/multimodal.js"></script>
+</body>
+</html>
+
