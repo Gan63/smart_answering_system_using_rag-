@@ -237,6 +237,63 @@ button { font-family: var(--font); cursor: pointer; border: none; background: no
   background: rgba(42,43,50,0.8);
 }
 
+.selectable-chat.select-mode {
+  padding-left: 36px;
+}
+
+.chat-checkbox {
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+  margin-right: 12px;
+  vertical-align: middle;
+}
+
+.chat-select-cb {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+.checkmark {
+  width: 16px;
+  height: 16px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  display: inline-block;
+  position: relative;
+  top: 0;
+  left: 0;
+  transition: all 0.2s;
+}
+
+.chat-checkbox:hover .checkmark {
+  background: rgba(0,229,160,0.1);
+  border-color: var(--accent);
+}
+
+.chat-select-cb:checked ~ .checkmark {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.chat-select-cb:checked ~ .checkmark:after {
+  content: "✓";
+  position: absolute;
+  color: #000;
+  font-size: 12px;
+  font-weight: bold;
+  left: 2px;
+  top: 0px;
+}
+
+.bulk-delete-btn {
+  animation: pulse 2s infinite;
+}
+
 .history-item.chat-item.active {
   background: #343541;
   border-right: 3px solid #00e5a0;
@@ -258,6 +315,15 @@ button { font-family: var(--font); cursor: pointer; border: none; background: no
 }
 .history-item:hover .meta {
   display: block;
+}
+
+.session-info {
+  color: #22c55e;
+  font-weight: 500;
+}
+.session-info p {
+  margin: 4px 0;
+  font-size: 12px;
 }
  
 /* Sidebar Footer */

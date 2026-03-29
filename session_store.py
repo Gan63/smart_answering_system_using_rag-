@@ -2,6 +2,7 @@ import time
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from utils.chat_history import ChatMessage, serialize_history
+from database.chroma_client import get_session_stats
 
 class Message(BaseModel):
     role: str
@@ -16,6 +17,8 @@ class SessionInfo(BaseModel):
     total_tokens: int = 0
     title: str = "New Chat"
     last_updated: float = 0
+    chunk_count: int = 0
+    vector_count: int = 0
 
 class SessionStore:
     def __init__(self):
@@ -91,6 +94,16 @@ class SessionStore:
         if session and session.chat_history:
             return serialize_history(session.chat_history)
         return None
+
+    def update_stats(self, session_id: str):
+        "Update chunk_count and vector_count from Chroma stats."
+        session = self.get_session(session_id)
+        if not session:
+            return
+        chroma_stats = get_session_stats(session_id)
+        if chroma_stats:
+            session.chunk_count = chroma_stats.get('text_count', 0)
+            session.vector_count = chroma_stats.get('text_count', 0) + chroma_stats.get('image_count', 0)
 
     def delete_session(self, session_id: str) -> bool:
         if session_id in self.sessions:

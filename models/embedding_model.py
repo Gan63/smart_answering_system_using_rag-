@@ -18,7 +18,9 @@ def get_clip_model():
     if clip_model is None:
         from transformers import CLIPProcessor, CLIPModel
         import torch
-        clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using CLIP device: {device}")
+        clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME).to(device)
         clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
     return clip_model, clip_processor
 
@@ -46,7 +48,7 @@ def embed_clip_text(text):
 def embed_image(image_path):
     model, processor = get_clip_model()
     import torch
-    image = Image.open(image_path)
+    image = Image.open(image_path).convert('RGB')
 
     inputs = processor(images=image, return_tensors="pt")
 

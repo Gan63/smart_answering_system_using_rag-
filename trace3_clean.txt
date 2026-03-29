@@ -1,0 +1,410 @@
+﻿Testing download.jpeg
+[*] Processing image: download.jpeg (session: test_session_img)
+[+] Image validated: download.jpeg
+Using CLIP device: cpu
+python : 
+At line:1 char:32
++ ... v:PYTHONIOENCODING="
+utf-8"; python 
+test_isolated.py > 
+trace3.log 2>&1
++                         
+        ~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo        
+      : NotSpecified: (:  
+  String) [], RemoteExc   
+ eption
+    + FullyQualifiedError 
+   Id : NativeCommandErr  
+  or
+ 
+Loading weights:   0%|    
+      | 0/398 [00:00<?, 
+?it/s]
+Loading weights: 100%|ÔûêÔ
+ûêÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔûê
+| 398/398 [00:00<00:00, 
+12559.40it/s]
+[1mCLIPModel LOAD 
+REPORT[0m from: openai/cl
+ip-vit-base-patch32
+Key                       
+           | Status     | 
+ | 
+--------------------------
+-----------+------------+-
+-+-
+text_model.embeddings.posi
+tion_ids   | UNEXPECTED | 
+ | 
+vision_model.embeddings.po
+sition_ids | UNEXPECTED | 
+ | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be 
+ignored when loading from 
+different 
+task/architecture; not ok 
+if you expect identical 
+arch.[0m
+Exception in thread 
+Thread-auto_conversion:
+Traceback (most recent 
+call last):
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_transports\defa
+ult.py", line 101, in 
+map_httpcore_exceptions
+    yield
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_transports\defa
+ult.py", line 250, in 
+handle_request
+    resp = self._pool.hand
+le_request(req)
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_sync\connect
+ion_pool.py", line 256, 
+in handle_request
+    raise exc from None
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_sync\connect
+ion_pool.py", line 236, 
+in handle_request
+    response = 
+connection.handle_request(
+        
+pool_request.request
+    )
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_sync\connect
+ion.py", line 103, in 
+handle_request
+    return self._connectio
+n.handle_request(request)
+           ~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_sync\http11.
+py", line 136, in 
+handle_request
+    raise exc
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_sync\http11.
+py", line 106, in 
+handle_request
+    ) = self._receive_resp
+onse_headers(**kwargs)
+        ~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_sync\http11.
+py", line 177, in 
+_receive_response_headers
+    event = self._receive_
+event(timeout=timeout)
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_sync\http11.
+py", line 217, in 
+_receive_event
+    data = 
+self._network_stream.read(
+        
+self.READ_NUM_BYTES, 
+timeout=timeout
+    )
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_backends\syn
+c.py", line 126, in read
+    with 
+map_exceptions(exc_map):
+         
+~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\contextlib
+.py", line 162, in 
+__exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpcore\_exceptions.p
+y", line 14, in 
+map_exceptions
+    raise to_exc(exc) 
+from exc
+httpcore.ReadTimeout: The 
+read operation timed out
+
+The above exception was 
+the direct cause of the 
+following exception:
+
+Traceback (most recent 
+call last):
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\threading.
+py", line 1043, in 
+_bootstrap_inner
+    self.run()
+    ~~~~~~~~^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\threading.
+py", line 994, in run
+    
+self._target(*self._args, 
+**self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\transformers\safetenso
+rs_conversion.py", line 
+117, in auto_conversion
+    raise e
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\transformers\safetenso
+rs_conversion.py", line 
+105, in auto_conversion
+    sharded = 
+api.file_exists(
+        pretrained_model_n
+ame_or_path,
+    ...<2 lines>...
+        token=cached_file_
+kwargs.get("token"),
+    )
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\huggingface_hub\utils\
+_validators.py", line 89, 
+in _inner_fn
+    return fn(*args, 
+**kwargs)
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\huggingface_hub\hf_api
+.py", line 3246, in 
+file_exists
+    
+get_hf_file_metadata(url, 
+token=token)
+    ~~~~~~~~~~~~~~~~~~~~^^
+^^^^^^^^^^^^^^^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\huggingface_hub\utils\
+_validators.py", line 89, 
+in _inner_fn
+    return fn(*args, 
+**kwargs)
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\huggingface_hub\file_d
+ownload.py", line 1576, 
+in get_hf_file_metadata
+    response = _httpx_foll
+ow_relative_redirects_with
+_backoff(
+        method="HEAD", 
+url=url, 
+headers=hf_headers, 
+timeout=timeout, retry_on_
+errors=retry_on_errors
+    )
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\huggingface_hub\utils\
+_http.py", line 685, in _h
+ttpx_follow_relative_redir
+ects_with_backoff
+    response = 
+http_backoff(
+        method=method,
+    ...<3 lines>...
+        **no_retry_kwargs,
+    )
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\huggingface_hub\utils\
+_http.py", line 559, in 
+http_backoff
+    return next(
+        
+_http_backoff_base(
+    ...<9 lines>...
+        )
+    )
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\huggingface_hub\utils\
+_http.py", line 467, in 
+_http_backoff_base
+    response = client.requ
+est(method=method, 
+url=url, **kwargs)
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_client.py", 
+line 825, in request
+    return 
+self.send(request, 
+auth=auth, follow_redirect
+s=follow_redirects)
+           ~~~~~~~~~^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_client.py", 
+line 914, in send
+    response = 
+self._send_handling_auth(
+        request,
+    ...<2 lines>...
+        history=[],
+    )
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_client.py", 
+line 942, in 
+_send_handling_auth
+    response = self._send_
+handling_redirects(
+        request,
+        follow_redirects=f
+ollow_redirects,
+        history=history,
+    )
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_client.py", 
+line 979, in 
+_send_handling_redirects
+    response = self._send_
+single_request(request)
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_client.py", 
+line 1014, in 
+_send_single_request
+    response = transport.h
+andle_request(request)
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_transports\defa
+ult.py", line 249, in 
+handle_request
+    with 
+map_httpcore_exceptions():
+         
+~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\contextlib
+.py", line 162, in 
+__exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\Ganesh\Ap
+pData\Local\Programs\Pytho
+n\Python313\Lib\site-packa
+ges\httpx\_transports\defa
+ult.py", line 118, in 
+map_httpcore_exceptions
+    raise 
+mapped_exc(message) from 
+exc
+httpx.ReadTimeout: The 
+read operation timed out
+The image processor of 
+type `CLIPImageProcessor` 
+is now loaded as a fast 
+processor by default, 
+even if the model 
+checkpoint was saved with 
+a slow processor. This is 
+a breaking change and may 
+produce slightly 
+different outputs. To 
+continue using the slow 
+processor, instantiate 
+this class with 
+`use_fast=False`. 
+[+] Embedding created
+[*] Initializing Chroma Cloud client...
+[+] Chroma Cloud ready - tenant:762b3932-..., db:pdf_vectors
+[+] Stored in DB
+[+] Updated session stats from Chroma
+[*] Image processing complete for session test_session_img
+Testing Document_2_1.pdf
+
+Loading weights:   0%|    
+      | 0/103 [00:00<?, 
+?it/s]
+Loading weights: 100%|ÔûêÔ
+ûêÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔûê
+| 103/103 [00:00<00:00, 
+5203.73it/s]
+[1mBertModel LOAD 
+REPORT[0m from: sentence-
+transformers/all-MiniLM-L6
+-v2
+Key                     | 
+Status     |  | 
+------------------------+-
+-----------+--+-
+embeddings.position_ids | 
+UNEXPECTED |  | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be 
+ignored when loading from 
+different 
+task/architecture; not ok 
+if you expect identical 
+arch.[0m
+[+] Ingested 1 text chunks for session test_session_pdf
+[+] Updated session stats from Chroma

@@ -1,6 +1,5 @@
-import chromadb
-from chromadb.config import Settings
-from config import CHROMA_PATH, TEXT_MODEL_NAME
+import os
+from config import CHROMA_PATH
 
 # Centralized Chroma client
 client = None
@@ -8,18 +7,31 @@ client = None
 def get_chroma_client():
     global client
     if client is None:
-        print("Initializing Chroma client...")
+        import chromadb
+        print("[*] Initializing Chroma Cloud client...")
         try:
-            client = chromadb.PersistentClient(path=CHROMA_PATH)
+            # Note: 'collection' is inherently handled by the get_or_create_collection methods below.
+            client = chromadb.CloudClient(
+                api_key="ck-Gzc9LJRr4k5S1bA1sxH32X971S6vgYFH99WKSTZJXbSt",
+                tenant="762b3932-4f9d-4d8c-9b86-388d593c091f",
+                database="pdf_vectors"
+            )
+            print("[+] Chroma Cloud ready - tenant:762b3932-..., db:pdf_vectors")
         except Exception as e:
-            print(f"PersistentClient failed: {e}. Using in-memory client.")
-            client = chromadb.Client(Settings(
-                anonymized_telemetry=False
-            ))
+            print(f"[-] Cloud failed: {e}. Falling back to local.")
+            try:
+                from chromadb.config import Settings
+                client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings(chroma_server_http_simple=False, anonymized_telemetry=False))
+                print("[+] Local persistent Chroma ready")
+            except Exception as inner_e:
+                print(f"[-] Local failed: {inner_e}. Using in-memory.")
+                from chromadb.config import Settings
+                client = chromadb.Client(settings=Settings(chroma_server_http_simple=False, anonymized_telemetry=False))
     return client
 
 def get_text_collection():
     """Gets or creates the global text collection."""
+    import chromadb
     client = get_chroma_client()
     collection = client.get_or_create_collection(
         name="text_collection",
@@ -29,6 +41,7 @@ def get_text_collection():
 
 def get_image_collection():
     """Gets or creates the global image collection."""
+    import chromadb
     client = get_chroma_client()
     collection = client.get_or_create_collection(
         name="image_collection",

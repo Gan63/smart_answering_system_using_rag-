@@ -83,3 +83,12 @@ def delete_chat(chat_id: str) -> bool:
     data[:] = [c for c in data if c["chat_id"] != chat_id]
     save_data(data)
     return len(data) < original_len
+
+
+def bulk_delete_chats(chat_ids: List[str]) -> Dict[str, int]:
+    \"\"\"Bulk delete multiple chats. Returns {'deleted': count}\"""
+    deleted = 0
+    for chat_id in chat_ids:
+        if delete_chat(chat_id):
+            deleted += 1
+    return {'deleted': deleted}

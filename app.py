@@ -9,7 +9,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from werkzeug.utils import secure_filename
+import time
 from openai import OpenAI
+from openai import APIConnectionError, AuthenticationError
 from agent.planner import agent_query
 from ingestion.ingest_pdf import ingest_pdf
 from ingestion.ingest_docx import ingest_docx
@@ -19,12 +21,15 @@ from session_store import session_store
 from utils.token_counter import count_tokens_from_response
 from utils.session_manager import add_to_history, get_chat_history, get_session_stats
 from utils.chat_store import chat_store
-from typing import Optional
+from utils.ai_router import AIRouter
+# from utils.auth import User, get_current_active_user
+from typing import List, Optional
 from contextlib import asynccontextmanager
+from fastapi.security import HTTPBearer
+from fastapi import Form
+from datetime import timedelta
+import secrets
 
-# =========================
-# Globals
-# =========================
 llm_client = None
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 UPLOAD_FOLDER = "data"
@@ -32,19 +37,21 @@ UPLOAD_FOLDER = "data"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global llm_client
-    if not OPENROUTER_API_KEY:
-        raise ValueError("[X] Please set OPENROUTER_API_KEY")
+    
+    # Use environment variable if set, otherwise fall back to hardcoded key
+    api_key = OPENROUTER_API_KEY or "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"
+    
+    if not api_key:
+        raise ValueError("[X] Please set OPENROUTER_API_KEY or provide a hardcoded key")
 
     llm_client = OpenAI(
-        api_key="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",
+        api_key="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",
         base_url="https://openrouter.ai/api/v1"
     )
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    print(f"[INFO] LLM client initialized with API key: {api_key[:20]}...")
     yield
 
-# =========================
-# 🚀 FASTAPI SETUP
-# =========================
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -58,62 +65,96 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="project_ui"), name="static")
 app.mount("/data", StaticFiles(directory="data", html=False), name="data")
 
-# =========================
-# 🤖 LLM FUNCTION - Smart RAG Assistant (EXACT SPEC)
-# =========================
-def ask_llm(text_context: str, images: list, question: str):
-    """
-    Smart RAG Assistant - follows exact rules from task.
-    """
-    try:
-        image_keywords = ["show image", "diagram", "figure", "visual"]
-        question_lower = question.lower()
-        show_images = any(keyword in question_lower for keyword in image_keywords)
+def ask_llm(text_context: str, images: list, question: str, max_retries: int = 3):
+    for attempt in range(max_retries):
+        try:
+            image_keywords = ["show image", "diagram", "figure", "visual"]
+            question_lower = question.lower()
+            show_images = any(keyword in question_lower for keyword in image_keywords)
 
-        messages = []
+            messages = []
 
-        # Conditional image context (JSON ready)
-        image_context_str = ""
-        if show_images and images:
-            image_list = []
-            for img in images[:3]:
-                url = img["path"].replace("data/", "/data/")
-                caption = img.get("caption", "Relevant image")
-                image_list.append(f'  {{"url": "{url}", "caption": "{caption}"}}')
-            image_context_str = f"""Available Images (use exactly):
+            image_context_str = ""
+            if show_images and images:
+                image_list = []
+                for img in images[:3]:
+                    url = img["path"].replace("data/", "/data/")
+                    caption = img.get("caption", "Relevant image")
+                    image_list.append(f'  {{"url": "{url}", "caption": "{caption}"}}')
+                image_context_str = f"""Available Images (use exactly):
 [
 {chr(10).join(image_list)}
 ]"""
 
-        prompt_text = f"""Context:
+            prompt_text = f"""You are a helpful AI assistant. You answer based on the provided context when applicable.
+
+Context:
 {text_context}
 
 {image_context_str}
 
+CRITICAL RULES:
+1. When the user asks a factual question about the document, you MUST answer ONLY using the Context and Images provided.
+2. If the user asks a factual document question and the answer is NOT explicitly available in the Context, you MUST say "I cannot find the answer to this in the uploaded documents." DO NOT guess.
+3. If giving an image, use the exact markdown provided.
+4. You may engage in standard conversational greetings and general reasoning.
+
 Question: {question}"""
-        
-        messages.append({"role": "user", "content": prompt_text})
+            
+            messages.append({"role": "user", "content": prompt_text})
 
-        model = "meta-llama/llama-3-8b-instruct"
-        
-        response = llm_client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.1
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"[ERROR] LLM: {e}")
-        raise
+            model = "meta-llama/llama-3.1-8b-instruct"
 
-# =========================
-# 📦 REQUEST MODELS
-# =========================
+            print(f"[INFO] LLM call attempt {attempt + 1}/{max_retries}")
+            
+            response = llm_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.1
+            )
+            print(f"[INFO] LLM success on attempt {attempt + 1}")
+            return response.choices[0].message.content
+        
+        except APIConnectionError as e:
+            print(f"[WARN] LLM connection error (attempt {attempt + 1}): {str(e)}")
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                print(f"[INFO] Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+            preview = text_context[:500] + "..." if text_context else "No context"
+            fallback = f"""❌ LLM SERVICE OFFLINE (Connection error: DNS/Internet issue)
+
+Please check:
+1. Internet connection: ping google.com
+2. DNS resolution: ping openrouter.ai
+3. Firewall/VPN blocking OpenRouter
+
+Retrieved {len(images)} image(s) and text context available:
+{preview}
+
+**Answer**: Unable to generate response due to network failure."""
+            print("[INFO] LLM offline fallback used")
+            return fallback
+            
+        except AuthenticationError as e:
+            print(f"[ERROR] LLM auth error: {str(e)}")
+            return f"❌ API KEY INVALID: {str(e)}"
+        
+        except Exception as e:
+            print(f"[ERROR] LLM unexpected error (attempt {attempt + 1}): {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
+                continue
+            return f"❌ LLM ERROR: {str(e)}"
+    
+    return "❌ Max retries exceeded"
+
 class AskRequest(BaseModel):
     question: str
     session_id: str
     top_k_text: int = 10
-    top_k_image: int = 1
+    top_k_image: int = 5
 
 class ChatRequest(BaseModel):
     chat_id: Optional[str] = None
@@ -122,23 +163,32 @@ class ChatRequest(BaseModel):
     file_name: Optional[str] = None
     user_id: str = "default"
     top_k_text: int = 10
-    top_k_image: int = 1
+    top_k_image: int = 5
 
-# =========================
-# 🌐 ROUTES
-# =========================
 @app.get("/")
 async def root():
     return FileResponse("project_ui/index.html")
 
 @app.get("/login")
-async def login():
+async def login_page():
     return FileResponse("project_ui/login.html")
 
 @app.get("/health")
 async def health():
     print("Health check OK")
-    return {"status": "ok"}
+    return {"status": "ok", "llm_available": True}
+
+@app.get("/llm-health")
+async def llm_health():
+    try:
+        test_response = llm_client.chat.completions.create(
+            model="meta-llama/llama-3.1-8b-instruct",
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=5
+        )
+        return {"status": "ok", "llm_connected": True, "model": "meta-llama/llama-3.1-8b-instruct"}
+    except Exception as e:
+        return {"status": "error", "llm_connected": False, "error": str(e)[:200]}
 
 @app.get("/favicon.ico")
 async def favicon():
@@ -154,24 +204,40 @@ async def query_endpoint(request: AskRequest):
             return {"answer": "No relevant information found in the document. Try rephrasing your question after ingestion completes.", "error": "No context", "images": [], "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
 
         text_context = context.get("text_context", "")
-        images_list = context.get("images", [])
-        answer = ask_llm(
-            text_context=text_context,
-            images=images_list,
-            question=request.question
-        )
-        tokens_response = llm_client.chat.completions.create(
-            model="meta-llama/llama-3-8b-instruct",
-            messages=[{"role": "user", "content": f"""Context:
-{text_context}
-
-Question: {request.question}"""}],
-            temperature=0.1
-        )
-        tokens = count_tokens_from_response(tokens_response)
+        image_paths = context.get("image_paths", [])
+        router = AIRouter(llm_client)
+        if image_paths:
+            result = router.generate_response(request.question, context, image_paths)
+            answer = result["answer"]
+            image_desc = result["image_desc"]
+            used_vision = result["used_vision"]
+            tokens = result.get("tokens", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+            tokens = result.get("tokens", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+        else:
+            answer = ask_llm(
+                text_context=text_context,
+                images=[],
+                question=request.question
+            )
+            image_desc = None
+            used_vision = False
+            tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            try:
+                tokens_response = llm_client.chat.completions.create(
+                    model="meta-llama/llama-3.1-8b-instruct",
+                    messages=[{"role": "user", "content": f"""Context: {text_context[:1000]}\nQ: {request.question}"""}],
+                    temperature=0.1
+                )
+                tokens = count_tokens_from_response(tokens_response)
+            except:
+                tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        
+        images_list = [{"path": p.split(" | ")[0] if " | " in p else p} for p in context.get("image_paths", [])]
         add_to_history(request.session_id, request.question, answer, context, images_list, tokens)
         return {
             "answer": answer,
+            "image_desc": image_desc,
+            "used_vision": used_vision,
             "context": context,
             "images": images_list,
             "tokens": tokens
@@ -220,11 +286,16 @@ async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)
         print(f"🚀 Starting background ingestion...")
         background_tasks.add_task(ingest_file)
         
+        from utils.session_manager import get_session_stats
+        stats = get_session_stats(session_id) or {}
+        
         return {
             "session_id": session_id,
             "filename": filename,
+            "chunk_count": stats.get('chunk_count', 0),
+            "vector_count": stats.get('vector_count', 0),
             "content_type": content_type,
-            "message": "File uploaded. Processing..."
+            "message": "File uploaded. Processing in background..."
         }
     except Exception as e:
         print(f"[ERROR] Upload: {e}")
@@ -291,6 +362,17 @@ async def get_history(session_id: str):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/session/{session_id}")
+async def get_session_stats_api(session_id: str):
+    from utils.session_manager import get_session_stats
+    stats = get_session_stats(session_id) or {}
+    return {
+        "session_id": session_id,
+        "chunk_count": stats.get('chunk_count', 0),
+        "vector_count": stats.get('vector_count', 0),
+        "message_count": stats.get('message_count', 0)
+    }
 
 @app.get("/sessions")
 async def get_sessions():
@@ -359,35 +441,81 @@ async def chat_endpoint(request: ChatRequest):
             context = {"text_context": "", "images": []}
 
         text_context = context.get("text_context", "")
-        images_list = context.get("images", [])
+        image_paths = context.get("image_paths", [])
         sources = context.get("text_results", [{}]) if "text_results" in context else []
 
-        # Chat logic
+        # Chat initialization logic
         if request.chat_id is None:
-            # New chat - create with user message
             request.chat_id = chat_store.create_chat(
-                request.file_name or "Untitled", 
+                request.file_name or "New Chat", 
                 request.message, 
                 request.session_id, 
                 request.user_id
             )
-            print(f"Created new chat {request.chat_id} with title from file: {request.file_name or 'Untitled'}")
         else:
             chat_store.append_message(request.chat_id, "user", request.message, [], [])
-            # Load for LLM - STRICT validation
-            existing = chat_store.get_chat(request.chat_id)
-            if not existing:
-                raise HTTPException(status_code=404, detail="Chat not found")
 
-        # LLM with full conversation memory
-        chat_msgs = chat_store.get_chat(request.chat_id).messages
-        messages = [{"role": "system", "content": f"Use this context: {text_context}\nImages: {images_list}"}]
+        chat = chat_store.get_chat(request.chat_id)        
+        if not chat:        
+            request.chat_id = chat_store.create_chat(
+                request.file_name or "Fallback Chat",               
+                request.message,       
+                request.session_id,           
+                request.user_id
+            )  
+            chat = chat_store.get_chat(request.chat_id)
+            
+        chat_msgs = chat.messages if chat else []
+
+        router = AIRouter(llm_client)
+        if image_paths:
+            result = router.generate_response(request.message, context, image_paths)
+            image_desc = result.get("image_desc", "")
+            text_context += f"\n\n[Vision Model Image Analysis]: {image_desc}"
+            used_vision = True
+        else:
+            used_vision = False
+
+        def normalize_img_url(raw: str) -> str:
+            """Convert any stored image path → clean browser URL like /data/extracted_images/foo.png"""
+            # Strip caption suffix (e.g. 'data/extracted_images/x.png | Figure from page 1')
+            path = raw.split(" | ")[0].strip()
+            # Normalize backslashes to forward slashes
+            path = path.replace("\\", "/")
+            # Remove any leading slash duplicates
+            path = path.lstrip("/")
+            # Ensure it starts with /
+            return "/" + path
+
+        images_list = [{"path": normalize_img_url(p), "caption": p.split(" | ")[1].strip() if " | " in p else "Document image"} for p in image_paths]
+        images_list_str = [f"![{im['caption']}]({im['path']})" for im in images_list]
+
+        # Determine if we have document context for this session
+        has_context = bool(text_context and text_context.strip())
+
+        system_prompt = f"""You are an intelligent, helpful AI assistant that ONLY answers questions based on the user's uploaded documents.
+
+Context from the user's uploaded documents:
+{text_context if has_context else '[NO DOCUMENT CONTEXT AVAILABLE]'}
+
+Available images from the document (include them in your answer when relevant): {", ".join(images_list_str)}
+
+STRICT RULES - YOU MUST FOLLOW THESE WITHOUT EXCEPTION:
+1. You MUST answer ONLY from the Context provided above. Do NOT use your general training knowledge to answer any document-related questions.
+2. If the Context is empty or marked as '[NO DOCUMENT CONTEXT AVAILABLE]', you MUST respond: "No document has been uploaded yet. Please upload a PDF or DOCX document first so I can answer your questions."
+3. If the user's question cannot be answered from the Context above, respond: "I cannot find the answer to this in the uploaded document. Please check if the relevant document has been uploaded."
+4. Do NOT hallucinate, guess, or infer facts that are not explicitly in the Context.
+5. You may respond to simple greetings (e.g., "hi", "hello") briefly, but still remind the user to upload a document if no context is available.
+6. If there are images in the "Available images from the document" list, ALWAYS include them in your answer using their exact markdown syntax, e.g.: ![image description](url). Include ALL available images.
+7. Do NOT output Python dictionaries or raw data structures.
+"""
+        messages = [{"role": "system", "content": system_prompt}]
         for m in chat_msgs:
             messages.append({"role": m["role"], "content": m["content"]})
         messages.append({"role": "user", "content": request.message})
 
         response = llm_client.chat.completions.create(
-            model="meta-llama/llama-3-8b-instruct",
+            model="meta-llama/llama-3.1-8b-instruct",
             messages=messages,
             temperature=0.1
         )
@@ -395,7 +523,10 @@ async def chat_endpoint(request: ChatRequest):
 
         # Store assistant response (sources/images)
         source_paths = [s.get('document', '') for s in sources if 'document' in s]
-        chat_store.append_message(request.chat_id, "assistant", answer, source_paths, [img['path'] for img in images_list])
+        
+        # We should also only store clean paths in the chat history
+        clean_image_paths = [im["path"] for im in images_list]
+        chat_store.append_message(request.chat_id, "assistant", answer, source_paths, clean_image_paths)
 
         tokens = count_tokens_from_response(response)
 
@@ -462,6 +593,17 @@ async def delete_session(session_id: str):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/bulk_delete_chats")
+async def bulk_delete_chats(chat_ids: List[str]):
+    """Bulk delete chats by IDs. Expects JSON body [chat_id1, chat_id2...]"""
+    try:
+        from utils.chat_backend import bulk_delete_chats as backend_bulk_delete
+        result = backend_bulk_delete(chat_ids)
+        print(f"Bulk deleted {result['deleted']} chats")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-

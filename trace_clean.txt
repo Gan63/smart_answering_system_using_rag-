@@ -1,0 +1,50 @@
+﻿Testing download.jpeg
+[*] Processing image: download.jpeg (session: test_session_img)
+[-] Image embedding failed for data\download.jpeg: 'NoneType' object has no attribute 'seek'
+Testing Document_2_1.pdf
+[*] Initializing Chroma Cloud client...
+[+] Chroma Cloud ready - tenant:762b3932-..., db:pdf_vectors
+python : 
+At line:1 char:32
++ ... nv:PYTHONIOENCODING=
+"utf-8"; python 
+test_isolated.py > 
+trace.log 2>&1
++                         
+         ~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo        
+      : NotSpecified: (:  
+  String) [], RemoteExc   
+ eption
+    + FullyQualifiedError 
+   Id : NativeCommandErr  
+  or
+ 
+Loading weights:   0%|    
+      | 0/103 [00:00<?, 
+?it/s]
+Loading weights: 100%|ÔûêÔ
+ûêÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔûê
+| 103/103 [00:00<00:00, 
+3542.46it/s]
+[1mBertModel LOAD 
+REPORT[0m from: sentence-
+transformers/all-MiniLM-L6
+-v2
+Key                     | 
+Status     |  | 
+------------------------+-
+-----------+--+-
+embeddings.position_ids | 
+UNEXPECTED |  | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be 
+ignored when loading from 
+different 
+task/architecture; not ok 
+if you expect identical 
+arch.[0m
+[+] Ingested 1 text chunks for session test_session_pdf
+[+] Updated session stats from Chroma

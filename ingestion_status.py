@@ -34,8 +34,15 @@ def set_error(session_id: str, error: str):
 
 def get_status(session_id: str) -> Optional[Dict[str, Any]]:
     """Get status for session"""
+    from session_store import session_store
     with _lock:
-        return _status_store.get(session_id)
+        status = _status_store.get(session_id)
+        if status:
+            session = session_store.get_session(session_id)
+            if session:
+                status['chunk_count'] = session.chunk_count
+                status['vector_count'] = session.vector_count
+        return status
 
 def clear_status(session_id: str):
     """Cleanup old status"""

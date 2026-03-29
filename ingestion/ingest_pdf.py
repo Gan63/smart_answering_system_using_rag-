@@ -77,8 +77,7 @@ def ingest_pdf(pdf_path: str, session_id: str):
             return
         metadatas = [{"source": source_name, "session_id": session_id} for _ in text_chunks]
         text_collection.add(ids=ids, embeddings=embeddings, documents=text_chunks, metadatas=metadatas)
-        print(f"✅ Ingested {len(text_chunks)} text chunks for session {session_id}")
-    
+        print(f"[+] Ingested {len(text_chunks)} text chunks for session {session_id}")
     # Ingest images with captions
     if image_info_list:
         ids = [str(uuid.uuid4()) for _ in image_info_list]
@@ -102,5 +101,10 @@ def ingest_pdf(pdf_path: str, session_id: str):
                 "page": info['page'],
                 "caption": caption
             })
-        image_collection.add(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
-        print(f"✅ Ingested {len(image_info_list)} images for session {session_id}")
+        if embeddings:
+            image_collection.add(ids=ids, embeddings=embeddings, documents=[d.replace("\\", "/") for d in documents], metadatas=metadatas)
+            print(f"[+] Ingested {len(image_info_list)} images for session {session_id}")
+    
+    from session_store import session_store
+    session_store.update_stats(session_id)
+    print("[+] Updated session stats from Chroma")

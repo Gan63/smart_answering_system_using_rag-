@@ -21,7 +21,7 @@ def rerank(query, documents):
 
     scored_docs.sort(key=lambda x: x[1], reverse=True)
 
-    top_docs = [doc for doc, score in scored_docs[:3]]
+    top_docs = [doc for doc, score in scored_docs[:10]]
 
     return top_docs
 

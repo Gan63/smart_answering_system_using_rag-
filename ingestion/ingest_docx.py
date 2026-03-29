@@ -95,12 +95,17 @@ def ingest_docx(docx_path, session_id: str):
                 image_collection.add(
                     ids=[str(uuid.uuid4())],
                     embeddings=[embedding],
-                    documents=[image_path],
+                    documents=[image_path.replace("\\", "/")],
                     metadatas=[{"source": source_name, "session_id": session_id}]
                 )
             except Exception as e:
                 print(f"Image add to Chroma failed: {str(e)[:100]}")
         print(f"Stored {len(image_paths)} images in ChromaDB")
     
+    print("[*] Stats updated from Chroma DB")
+    
+    from session_store import session_store
+    session_store.update_stats(session_id)
+    print("[+] Updated session stats from Chroma")
     print("DOCX ingestion complete!")
 

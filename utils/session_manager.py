@@ -24,8 +24,10 @@ def get_session_stats(session_id: str) -> Optional[Dict[str, Any]]:
     '''
     session = session_store.get_session(session_id)
     if session:
-        return {
+     return {
             'message_count': getattr(session, 'message_count', 0),
-            'total_tokens': getattr(session, 'total_tokens', 0)
+            'total_tokens': getattr(session, 'total_tokens', 0),
+            'chunk_count': getattr(session, 'chunk_count', 0),
+            'vector_count': getattr(session, 'vector_count', 0)
         }
     return None

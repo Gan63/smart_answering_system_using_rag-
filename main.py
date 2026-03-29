@@ -15,7 +15,7 @@ if not api_key:
     exit(1)
 
 llm_client = OpenAI(
-    api_key="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",
+    api_key="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",
     base_url="https://openrouter.ai/api/v1"
 )
 
@@ -29,7 +29,7 @@ Question:
 {question}"""
 
     response = llm_client.chat.completions.create(
-        model="meta-llama/llama-3.2-8b-instruct:free",
+        model="openai/gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}]
     )
 

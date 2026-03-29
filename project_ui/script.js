@@ -52,18 +52,21 @@ function newChat() {
     conversation = [];
     messages.innerHTML = '';
     promptEl.value = '';
+    // Reset session info UI
+    document.querySelectorAll('.session-info').forEach(el => {
+      el.innerHTML = '<p class="chunks">📄 Chunks: -</p><p class="vectors">🧠 Vectors: -</p>';
+    });
     if (currentSession.sessionId) {
-        promptEl.disabled = false;
         promptEl.placeholder = `New chat about ${currentSession.filename} (has RAG context)`;
         modelLabel.textContent = 'New Chat';
-        sendBtn.disabled = false;
     } else {
         welcome.style.display = 'flex';
-        promptEl.disabled = true;
         promptEl.placeholder = 'Upload a document to start chatting...';
-        sendBtn.disabled = true;
         modelLabel.textContent = 'Smart RAG Assistant';
     }
+    // Textarea is ALWAYS enabled — user can type at any time
+    promptEl.disabled = false;
+    sendBtn.disabled = promptEl.value.trim().length === 0;
     tokenChip.style.display = 'none';
     loadChats();
 }
@@ -78,10 +81,31 @@ function appendBubbleWithMeta(role, content, sources = [], images = []) {
     row.className = `msg-row ${role}`;
     const isUser = role === 'user';
 
+    // Build inline image gallery from API images array (separate from LLM text)
+    let imageGalleryHTML = '';
+    if (!isUser && images && images.length > 0) {
+        const imgItems = images.map((img, idx) => {
+            // Path is already normalized by backend (/data/extracted_images/...)
+            let src = img.path || img.url || '';
+            // Safety: normalize backslashes, ensure leading slash
+            src = src.replace(/\\/g, '/').split(' | ')[0].trim();
+            if (src && !src.startsWith('/')) src = '/' + src;
+            const caption = img.caption || `Image ${idx + 1}`;
+            const escapedSrc = src.replace(/"/g, '%22');
+            return `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:4px;margin:4px;">
+                <img id="img-${idx}-${Date.now()}" src="${escapedSrc}" alt="${esc(caption)}"
+                     style="max-width:300px;max-height:220px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5);cursor:pointer;display:block;border:1px solid rgba(255,255,255,0.1);"
+                     onclick="window.open(this.src,'_blank')"
+                     onerror="this.outerHTML='<div style=\'padding:8px 12px;background:rgba(255,80,80,0.15);border:1px solid rgba(255,80,80,0.4);border-radius:8px;font-size:12px;color:#ff8080;max-width:300px;word-break:break-all\'>\u26a0\ufe0f Cannot load: ${escapedSrc}</div>'" />
+                <span style="font-size:11px;color:var(--text-2,#8888aa);text-align:center;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(caption)}">${esc(caption)}</span>
+            </div>`;
+        }).join('');
+        imageGalleryHTML = `<div class="image-gallery" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.07);">${imgItems}</div>`;
+    }
+
     let metaHTML = '';
-    if (!isUser && (sources.length || images.length)) {
-        metaHTML = sources.slice(0,3).map(s => `<span class="meta-chip chunks" title="${esc(s)}">${esc(s.length > 20 ? s.slice(0,20)+'...' : s)}</span>`).join('') +
-                   images.slice(0,2).map(() => '<span class="meta-chip images" title="Image">🖼️</span>').join('');
+    if (!isUser && sources.length) {
+        metaHTML = sources.slice(0,3).map(s => `<span class="meta-chip chunks" title="${esc(s)}">${esc(s.length > 20 ? s.slice(0,20)+'...' : s)}</span>`).join('');
         metaHTML = `<div class="msg-meta">${metaHTML}</div>`;
     }
 
@@ -89,7 +113,7 @@ function appendBubbleWithMeta(role, content, sources = [], images = []) {
         <div class="msg-inner">
             ${!isUser ? `<div class="msg-avatar ai">R</div>` : ''}
             <div class="msg-content-wrap" style="flex:1;min-width:0">
-                <div class="msg-bubble">${renderContent(content, isUser)}</div>
+                <div class="msg-bubble">${renderContent(content, isUser)}${imageGalleryHTML}</div>
                 ${metaHTML}
             </div>
             ${isUser ? `<div class="msg-avatar usr">U</div>` : ''}
@@ -121,10 +145,58 @@ function hideLoading() {
 }
 
 /* ── SEND ── */
+/* ── TOAST NOTIFICATION ── */
+function showToast(message, type = 'warning') {
+    let toast = document.getElementById('ragToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'ragToast';
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: var(--surface-2, #1e1e2e);
+            color: var(--text-1, #e0e0ff);
+            border: 1px solid rgba(255,160,50,0.5);
+            border-radius: 12px;
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            z-index: 9999;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            max-width: 360px;
+            text-align: center;
+        `;
+        document.body.appendChild(toast);
+    }
+    toast.innerHTML = `<span style="font-size:18px">${type === 'warning' ? '⚠️' : 'ℹ️'}</span> ${message}`;
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(-50%) translateY(0)';
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(20px)';
+    }, 3500);
+}
+
 async function send() {
-    if (isLoading && !currentChatId && !currentSession.sessionId) return;
+    if (isLoading) return;
     const text = promptEl.value.trim();
     if (!text) return;
+
+    // If no document uploaded, notify user and stop
+    if (!currentSession.sessionId && !currentChatId) {
+        showToast('Please upload a document first before asking questions.', 'warning');
+        promptEl.focus();
+        return;
+    }
 
     promptEl.value = '';
     resizeTextarea();
@@ -169,7 +241,7 @@ async function send() {
         appendBubble('ai', `**Error:** Could not get an answer. \n\n${err.message}`);
     } finally {
         isLoading = false;
-        sendBtn.disabled = promptEl.value.trim().length === 0 || (!currentSession.sessionId && !currentChatId);
+        sendBtn.disabled = promptEl.value.trim().length === 0;
         promptEl.focus();
     }
 }
@@ -210,7 +282,12 @@ async function uploadFile() {
         currentSession.sessionId = data.session_id;
         currentSession.filename = data.filename;
 
-        uploadStatus.textContent = `✓ ${file.name} uploaded`;
+        uploadStatus.innerHTML = `✔ ${file.name} uploaded successfully<br>
+  <div class="session-info">
+    <p class="file">✔ ${data.filename} uploaded</p>
+    <p class="chunks">📄 Chunks: ${data.chunk_count || 0}</p>
+    <p class="vectors">🧠 Vectors: ${data.vector_count || 0}</p>
+  </div>`;
         uploadStatus.className = 'upload-status success';
         
         if (uploadMessage) {
@@ -311,13 +388,43 @@ async function checkProcessingComplete(sessionId, filename) {
 /* ── CONTENT RENDERER ── */
 function renderContent(text, isUser) {
     if (isUser) return esc(text).replace(/\n/g, '<br>');
-    let h = esc(text);
-    h = h.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, c) => `<pre><code>${c.trim()}</code></pre>`);
-    h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
-    h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    h = h.replace(/\n/g, '<br>');
-    return h;
+
+    // Extract image markdown BEFORE escaping, so they survive HTML encoding
+    const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    while ((match = imgRegex.exec(text)) !== null) {
+        // Push text before this image (escaped)
+        if (match.index > lastIndex) {
+            parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+        }
+        // Extract and clean the image URL
+        const alt = match[1];
+        const rawUrl = match[2].split('|')[0].trim().replace(/%20%7C%20.*/i, '').replace(/%7C.*/i, '');
+        parts.push({ type: 'img', alt, url: rawUrl });
+        lastIndex = match.index + match[0].length;
+    }
+    // Remaining text after last image
+    if (lastIndex < text.length) {
+        parts.push({ type: 'text', content: text.slice(lastIndex) });
+    }
+
+    let html = '';
+    for (const part of parts) {
+        if (part.type === 'img') {
+            html += `<div style="margin:10px 0;"><img src="${part.url}" alt="${esc(part.alt)}" style="max-width:100%;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.3);cursor:pointer;display:block;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div style="display:none;align-items:center;gap:8px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;font-size:13px;color:var(--text-2);">⚠️ Image not found: ${esc(part.url)}</div></div>`;
+        } else {
+            let h = esc(part.content);
+            h = h.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, c) => `<pre><code>${c.trim()}</code></pre>`);
+            h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+            h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            h = h.replace(/\n/g, '<br>');
+            html += h;
+        }
+    }
+    return html;
 }
 
 function esc(s) {
@@ -366,7 +473,8 @@ function bindEvents() {
 
     promptEl.addEventListener('input', () => {
         resizeTextarea();
-        sendBtn.disabled = !promptEl.value.trim() || isLoading || !currentSession.sessionId;
+        // Send button enabled as long as there is text — doc check happens on send()
+        sendBtn.disabled = !promptEl.value.trim() || isLoading;
     });
     promptEl.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -381,20 +489,50 @@ function bindEvents() {
 
     // Event delegation for chat clicks (handles dynamic re-renders)
     historyContainer.addEventListener('click', (e) => {
-      // Delete button handler
+      // Single delete button - toggle checkboxes mode
       if (e.target.classList.contains('delete-chat-btn')) {
         const chatItem = e.target.closest('.chat-item');
         if (chatItem && chatItem.dataset.chatId) {
           e.stopPropagation();
           e.preventDefault();
-          deleteChatNew(chatItem.dataset.chatId);  // Use NEW handler with /delete_chat
+          
+          // Toggle checkboxes visibility for all chats
+          const chatItems = document.querySelectorAll('.selectable-chat');
+          const isHidden = chatItems[0]?.querySelector('.chat-checkbox').style.display === 'none';
+          
+          chatItems.forEach(item => {
+            const cb = item.querySelector('.chat-checkbox');
+            cb.style.display = isHidden ? 'inline-block' : 'none';
+            item.classList.toggle('select-mode', !isHidden);
+          });
+          
+          if (!isHidden) {
+            // Hide checkboxes, clear selections
+            document.querySelectorAll('.chat-select-cb').forEach(cb => cb.checked = false);
+            updateBulkDeleteBtn();
+          }
+          
           return;
         }
       }
-      // Chat select handler
-      const chatItem = e.target.closest('.chat-item');
-      if (chatItem && chatItem.dataset.chatId) {
+      
+      // Checkbox click
+      if (e.target.classList.contains('chat-select-cb')) {
+        updateBulkDeleteBtn();
+        return;
+      }
+      
+      // Bulk delete button click
+      if (e.target.id === 'bulkDeleteBtn' || e.target.closest('#bulkDeleteBtn')) {
         e.stopPropagation();
+        handleBulkDelete();
+        return;
+      }
+
+      
+      // Chat select (ignore checkboxes)
+      if (!e.target.closest('.chat-checkbox') && e.target.closest('.chat-item')) {
+        const chatItem = e.target.closest('.chat-item');
         loadChat(chatItem.dataset.chatId);
       }
     });
@@ -408,13 +546,18 @@ async function loadChats() {
         console.log("📦 Chats loaded:", data.chats ? data.chats.length : 0, data.chats);
         chats = data.chats || [];
         console.log("📦 Rendering", chats.length, "chats:", chats);
-        // Render chat items
+
+// Render chat items with checkbox (sync)
         const chatItems = chats.map(chat => {
             const div = document.createElement('div');
-            div.className = 'history-item chat-item' + (chat.chat_id === currentChatId ? ' active' : '');
+            div.className = 'history-item chat-item' + (chat.chat_id === currentChatId ? ' active' : '') + ' selectable-chat';
             div.dataset.chatId = chat.chat_id;
             div.innerHTML = `
                 <div class="history-title">
+                  <label class="chat-checkbox">
+                    <input type="checkbox" class="chat-select-cb" data-chat-id="${chat.chat_id}">
+                    <span class="checkmark"></span>
+                  </label>
                   ${esc(chat.title)}
                   <button class="delete-chat-btn" title="Delete chat">🗑</button>
                 </div>
@@ -423,35 +566,55 @@ async function loadChats() {
                     <span class="last-msg">${new Date(chat.timestamp * 1000).toLocaleDateString()}</span>
                 </div>
             `;
-            div.addEventListener('click', () => loadChat(chat.chat_id));
-            return div;
-        });
-        const sessionSection = document.createElement('div');
-        sessionSection.className = 'sb-section';
-        const sessionItems = allSessions.map(session => {
-            const div = document.createElement('div');
-            div.className = 'history-item session-item' + (session.session_id === currentSession.sessionId ? ' active' : '');
-            div.dataset.sessionId = session.session_id;
-            div.innerHTML = `
-                <div class="history-title">${esc(session.filename)}</div>
-                <div class="history-meta">
-                    <span class="msg-count">${session.message_count || 0} msgs</span>
-                    <span class="last-msg">${new Date(session.created_at * 1000).toLocaleDateString()}</span>
-                </div>
-            `;
-            div.addEventListener('click', () => loadSessionHistory(session.session_id));
-            return div;
-        });
-        sessionSection.innerHTML = '<div class="sb-section-label">Sessions</div>' + sessionItems.map(item => item.outerHTML).join('');
+            return div.outerHTML;
+        }).join('');
+
+        // Render session items (async - await all)
+        let sessionHTML = '';
+        if (allSessions.length > 0) {
+            const sessionPromises = allSessions.map(async session => {
+                try {
+                    const statsRes = await fetch(`/api/session/${session.session_id}`);
+                    const stats = await statsRes.json();
+                    
+                    const div = document.createElement('div');
+                    div.className = 'history-item session-item' + (session.session_id === currentSession.sessionId ? ' active' : '');
+                    div.dataset.sessionId = session.session_id;
+                    div.innerHTML = `
+                        <div class="history-title">✔ ${esc(session.filename)} uploaded</div>
+                        <div class="session-info">
+                          <p class="chunks">📄 Chunks: ${stats.chunk_count || 0}</p>
+                          <p class="vectors">🧠 Vectors: ${stats.vector_count || 0}</p>
+                        </div>
+                        <div class="history-meta">
+                            <span class="msg-count">${session.message_count || 0} msgs</span>
+                            <span class="last-msg">${new Date(session.created_at * 1000).toLocaleDateString()}</span>
+                        </div>
+                    `;
+                    return div.outerHTML;
+                } catch (e) {
+                    console.warn(`Failed to load session stats for ${session.session_id}:`, e);
+                    return `<div class="history-item session-item">
+                        <div class="history-title">✔ ${esc(session.filename)} uploaded</div>
+                        <div class="history-meta">
+                            <span class="msg-count">${session.message_count || 0} msgs</span>
+                            <span class="last-msg">${new Date(session.created_at * 1000).toLocaleDateString()}</span>
+                        </div>
+                    </div>`;
+                }
+            });
+            const sessionHTMLs = await Promise.all(sessionPromises);
+            sessionHTML = '<div class="sb-section-label">Sessions</div>' + sessionHTMLs.join('');
+        }
+
         historyContainer.innerHTML = `
             <div class="sb-section">
                 <div class="sb-section-label">Chats</div>
-                ${chatItems.map(item => item.outerHTML).join('')}
+                ${chatItems}
             </div>
-            ${sessionSection.outerHTML}
+            <div class="sb-section">${sessionHTML}</div>
         `;
 
-        // REMOVED auto-select: New chats stay fresh, no jump to old chats
     } catch (e) {
         console.error('Load chats error:', e);
     }
