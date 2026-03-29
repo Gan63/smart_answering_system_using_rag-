@@ -150,6 +150,20 @@ Retrieved {len(images)} image(s) and text context available:
     
     return "❌ Max retries exceeded"
 
+def is_image_query(question: str) -> bool:
+    """Detect if the user is asking for images, diagrams, visuals, or display."""
+    image_keywords = [
+        "image", "images", "picture", "pictures", "photo", "photos",
+        "diagram", "diagrams", "figure", "figures", "chart", "charts",
+        "visual", "visuals", "display", "show me", "show image",
+        "illustration", "graph", "graphs", "screenshot", "plot", "plots",
+        "infographic", "map", "maps", "schematic", "schematics",
+        "table image", "draw", "drawing", "visualize", "visualise"
+    ]
+    q_lower = question.lower()
+    return any(kw in q_lower for kw in image_keywords)
+
+
 class AskRequest(BaseModel):
     question: str
     session_id: str
@@ -487,8 +501,19 @@ async def chat_endpoint(request: ChatRequest):
             # Ensure it starts with /
             return "/" + path
 
-        images_list = [{"path": normalize_img_url(p), "caption": p.split(" | ")[1].strip() if " | " in p else "Document image"} for p in image_paths]
-        images_list_str = [f"![{im['caption']}]({im['path']})" for im in images_list]
+        # Determine if the user is asking about images/visuals/diagrams
+        show_images = is_image_query(request.message)
+
+        # Only build the images list when the query is image-related
+        if show_images:
+            images_list = [{"path": normalize_img_url(p), "caption": p.split(" | ")[1].strip() if " | " in p else "Document image"} for p in image_paths]
+            images_list_str = [f"![{im['caption']}]({im['path']})" for im in images_list]
+            image_instruction = f"Available images from the document (include them in your answer): {', '.join(images_list_str)}"
+            image_rule = "6. The user has asked to see images/diagrams. Include ALL available images using their exact markdown syntax, e.g.: ![caption](url)."
+        else:
+            images_list = []  # No images returned for text-only queries
+            image_instruction = ""  # No image section in prompt
+            image_rule = "6. Do NOT include any images or image markdown in your answer. Answer in text only."
 
         # Determine if we have document context for this session
         has_context = bool(text_context and text_context.strip())
@@ -498,7 +523,7 @@ async def chat_endpoint(request: ChatRequest):
 Context from the user's uploaded documents:
 {text_context if has_context else '[NO DOCUMENT CONTEXT AVAILABLE]'}
 
-Available images from the document (include them in your answer when relevant): {", ".join(images_list_str)}
+{image_instruction}
 
 STRICT RULES - YOU MUST FOLLOW THESE WITHOUT EXCEPTION:
 1. You MUST answer ONLY from the Context provided above. Do NOT use your general training knowledge to answer any document-related questions.
@@ -506,7 +531,7 @@ STRICT RULES - YOU MUST FOLLOW THESE WITHOUT EXCEPTION:
 3. If the user's question cannot be answered from the Context above, respond: "I cannot find the answer to this in the uploaded document. Please check if the relevant document has been uploaded."
 4. Do NOT hallucinate, guess, or infer facts that are not explicitly in the Context.
 5. You may respond to simple greetings (e.g., "hi", "hello") briefly, but still remind the user to upload a document if no context is available.
-6. If there are images in the "Available images from the document" list, ALWAYS include them in your answer using their exact markdown syntax, e.g.: ![image description](url). Include ALL available images.
+{image_rule}
 7. Do NOT output Python dictionaries or raw data structures.
 """
         messages = [{"role": "system", "content": system_prompt}]
