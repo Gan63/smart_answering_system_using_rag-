@@ -4,7 +4,7 @@ import os
 from database.chroma_client import get_text_collection, get_image_collection
 from models.embedding_model import embed_text, embed_image
 
-def extract_text_and_images_from_pdf(pdf_path):
+def extract_text_and_images_from_pdf(pdf_path, session_id=""):
     text = ""
     image_paths = []
     
@@ -13,6 +13,9 @@ def extract_text_and_images_from_pdf(pdf_path):
     os.makedirs(image_output_dir, exist_ok=True)
     
     doc = fitz.open(pdf_path)
+    
+    # Use a session prefix so images from different sessions never collide on disk
+    session_prefix = session_id[:8] if session_id else "nosession"
     
     for page_num, page in enumerate(doc):
         text += page.get_text()
@@ -23,9 +26,10 @@ def extract_text_and_images_from_pdf(pdf_path):
             base_image = doc.extract_image(xref)
             image_bytes = base_image["image"]
             
-            # Save the image
-            image_filename = f"image_{page_num}_{img_index}.png"
+            # Save with session prefix to avoid cross-session filename collisions
+            image_filename = f"{session_prefix}_image_{page_num}_{img_index}.png"
             image_path = os.path.join(image_output_dir, image_filename)
+            image_path = image_path.replace("\\", "/")  # Normalise to forward slashes
             with open(image_path, "wb") as image_file:
                 image_file.write(image_bytes)
             
@@ -54,7 +58,7 @@ def ingest_pdf(pdf_path: str, session_id: str):
     if not session_id:
         raise ValueError("A session_id is required for ingestion.")
 
-    result = extract_text_and_images_from_pdf(pdf_path)
+    result = extract_text_and_images_from_pdf(pdf_path, session_id=session_id)
     text = result["text"]
     image_info_list = result["images"]
     source_name = os.path.basename(pdf_path)

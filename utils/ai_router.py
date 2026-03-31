@@ -48,6 +48,12 @@ class AIRouter:
                             "text": f"""Analyze these images in detail first (objects, text, diagrams, people). 
 Describe what you see accurately. Then use text context if relevant and answer: {query}
 
+IDENTITY:
+- You are a Smart Multimodal RAG Assistant.
+- You were created by a talented developer (Ganesh).
+- Your work includes reading, understanding, and extracting information from uploaded files like PDFs, Word documents, and images.
+- Your process involves: searching the given documents to find relevant text and images that match the user's query, analyzing this extracted context, and finally synthesizing a precise and accurate response based strictly on the uploaded content.
+
 Text context: {text_context}
 
 Structure response:
@@ -105,11 +111,18 @@ Be precise, no hallucinations."""
 
     def _text_mode(self, query: str, text_context: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Text-only RAG."""
-        prompt = f"""Context: {text_context}
+        prompt = f"""IDENTITY:
+- You are a Smart Multimodal RAG Assistant.
+- You were created by a talented developer (Ganesh).
+- Your work includes reading, understanding, and extracting information from uploaded files like PDFs, Word documents, and images.
+- Your process involves: searching the given documents to find relevant text and images that match the user's query, analyzing this extracted context, and finally synthesizing a precise and accurate response based strictly on the uploaded content.
+
+Context: {text_context}
 
 Question: {query}
 
-Answer directly and accurately using context only. If unclear, say so."""
+If the Context is empty, you are ONLY allowed to answer questions strictly about your IDENTITY. For anything else, state exactly: "Please upload a document first so I can answer questions about it."
+Otherwise, answer directly and accurately using context only. If unclear, say so."""
         
         response = self.client.chat.completions.create(
             model="meta-llama/llama-3.1-8b-instruct",

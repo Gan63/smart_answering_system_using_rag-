@@ -423,27 +423,72 @@
   });
 
   /* ── LOGIN ── */
-  document.getElementById('loginBtn').addEventListener('click', () => {
+  document.getElementById('loginBtn').addEventListener('click', async () => {
     const email = document.getElementById('login-email').value.trim();
     const pass  = document.getElementById('login-pass').value;
     const err   = document.getElementById('login-err');
-    if (!email || !pass) { err.style.display = 'block'; return; }
-    err.style.display = 'none';
-    // Simulate login success → store demo token + redirect
-    localStorage.setItem('smart_rag_token', 'demo-token');
-    window.location.href = '/';
+    
+    if (!email || !pass) { 
+        err.textContent = 'Please enter both email and password.';
+        err.style.display = 'block'; 
+        return; 
+    }
+    
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password: pass })
+        });
+        
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Login failed');
+        }
+        
+        const data = await res.json();
+        localStorage.setItem('smart_rag_token', data.access_token);
+        localStorage.setItem('smart_rag_user', JSON.stringify(data.user));
+        window.location.href = '/';
+    } catch (e) {
+        err.textContent = e.message;
+        err.style.display = 'block';
+    }
   });
 
   /* ── SIGNUP ── */
-  document.getElementById('signupBtn').addEventListener('click', () => {
+  document.getElementById('signupBtn').addEventListener('click', async () => {
     const name  = document.getElementById('su-name').value.trim();
     const email = document.getElementById('su-email').value.trim();
     const pass  = document.getElementById('su-pass').value;
     const err   = document.getElementById('su-err');
-    if (!name || !email || pass.length < 8) { err.style.display = 'block'; return; }
-    err.style.display = 'none';
-    localStorage.setItem('smart_rag_token', 'demo-token');
-    window.location.href = '/';
+    
+    if (!name || !email || pass.length < 8) { 
+        err.textContent = 'Please fill all fields (password min 8 chars).';
+        err.style.display = 'block'; 
+        return; 
+    }
+    
+    try {
+        const res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: name, email, password: pass })
+        });
+        
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Registration failed');
+        }
+        
+        const data = await res.json();
+        localStorage.setItem('smart_rag_token', data.access_token);
+        localStorage.setItem('smart_rag_user', JSON.stringify(data.user));
+        window.location.href = '/';
+    } catch (e) {
+        err.textContent = e.message;
+        err.style.display = 'block';
+    }
   });
 
   /* ── ENTER KEY ── */

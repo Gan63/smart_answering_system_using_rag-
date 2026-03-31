@@ -23,6 +23,26 @@ const sbStats = document.getElementById('sbStats');
 const tokenChip = document.getElementById('tokenChip');
 const accBadge = document.getElementById('accBadge');
 
+/* ── SIDEBAR STAT COUNTERS ── */
+let _totalChunks = 0;
+let _totalVectors = 0;
+
+function updateSidebarStats({ chunkCount, vectorCount } = {}) {
+    if (chunkCount !== undefined) _totalChunks = chunkCount;
+    if (vectorCount !== undefined) _totalVectors = vectorCount;
+    if (!sbStats) return;
+    sbStats.innerHTML = `
+        <div class="stat-pill">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span>${_totalChunks.toLocaleString()} chunks</span>
+        </div>
+        <div class="stat-pill">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 14a2 2 0 1 0 2-2 2 2 0 0 0-2 2z"/></svg>
+            <span>${_totalVectors.toLocaleString()} vectors</span>
+        </div>
+    `;
+}
+
 let allSessions = [];
 
 /* ── DOM ── */
@@ -40,12 +60,110 @@ const uploadMessage = document.getElementById('uploadMessage');
 
 /* ── INIT ── */
 console.log("🎉 JS LOADED - Frontend ready");
+checkAuth(); // Added auth guard
 bindEvents();
 setSidebarState(window.innerWidth > 640);
-loadChats();
-loadSessions(); // Keep existing sessions sidebar option
+loadSessions(); // loadSessions will call loadChats at the end
+
+async function checkAuth() {
+    const token = localStorage.getItem('smart_rag_token');
+    if (!token) {
+        window.location.href = '/login';
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/auth/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Unauthorized');
+        
+        const user = await res.json();
+        // Update UI with user info
+        updateUserUI(user);
+    } catch (e) {
+        console.error('Auth check failed:', e);
+        localStorage.removeItem('smart_rag_token');
+        window.location.href = '/login';
+    }
+}
+
+function updateUserUI(user) {
+    const userNameEl = document.querySelector('.user-name');
+    const userSubEl = document.querySelector('.user-sub');
+    const userAvatarEl = document.querySelector('.user-avatar');
+    
+    if (userNameEl) userNameEl.textContent = user.full_name;
+    if (userSubEl) userSubEl.textContent = user.email;
+    if (userAvatarEl) userAvatarEl.textContent = user.full_name.charAt(0).toUpperCase();
+}
+
+function logout() {
+    localStorage.removeItem('smart_rag_token');
+    localStorage.removeItem('smart_rag_user');
+    window.location.href = '/login';
+}
+
+/* ── GLOBAL CONTEXT MENU STATE ── */
+let _openMenu = null;
+document.addEventListener('click', (e) => {
+    if (_openMenu && !_openMenu.contains(e.target)) closeAllMenus();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAllMenus();
+});
+
+function closeAllMenus() {
+    document.querySelectorAll('.ctx-menu').forEach(m => m.remove());
+    _openMenu = null;
+}
+
+function openContextMenu(anchorEl, items) {
+    closeAllMenus();
+    const menu = document.createElement('div');
+    menu.className = 'ctx-menu';
+    items.forEach(item => {
+        const btn = document.createElement('button');
+        btn.className = 'ctx-item' + (item.danger ? ' ctx-danger' : '');
+        btn.innerHTML = `<span class="ctx-icon">${item.icon}</span>${item.label}`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeAllMenus();
+            item.action();
+        });
+        menu.appendChild(btn);
+    });
+    document.body.appendChild(menu);
+    _openMenu = menu;
+    // Position below the anchor button
+    const rect = anchorEl.getBoundingClientRect();
+    let top = rect.bottom + 4;
+    let left = rect.right - 140; // align right edge
+    // keep inside viewport
+    if (left < 4) left = 4;
+    if (top + 80 > window.innerHeight) top = rect.top - 80;
+    menu.style.top  = `${top}px`;
+    menu.style.left = `${left}px`;
+}
 
 /* ── NEW CHAT ── */
+function completelyNewChat() {
+    currentSession = { sessionId: null, filename: null };
+    if (document.getElementById('fileInput')) document.getElementById('fileInput').value = '';
+    if (document.getElementById('uploadStatus')) {
+        document.getElementById('uploadStatus').textContent = '';
+        document.getElementById('uploadStatus').className = 'upload-status';
+    }
+    if (document.getElementById('uploadMessage')) {
+        document.getElementById('uploadMessage').textContent = '';
+        document.getElementById('uploadMessage').style.display = 'none';
+    }
+    document.querySelectorAll('.session-item, .history-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    newChat();
+}
+
 function newChat() {
     currentChatId = null;
     console.log("New chat - Current Chat ID:", currentChatId);
@@ -176,7 +294,8 @@ function showToast(message, type = 'warning') {
         `;
         document.body.appendChild(toast);
     }
-    toast.innerHTML = `<span style="font-size:18px">${type === 'warning' ? '⚠️' : 'ℹ️'}</span> ${message}`;
+    toast.innerHTML = `<span style="font-size:18px">${type === 'warning' ? '⚠️' : type === 'info' ? '✅' : 'ℹ️'}</span> ${message}`;
+    toast.style.borderColor = type === 'info' ? 'rgba(0,229,160,0.5)' : type === 'warning' ? 'rgba(255,160,50,0.5)' : 'rgba(100,180,255,0.5)';
     toast.style.opacity = '1';
     toast.style.transform = 'translateX(-50%) translateY(0)';
     clearTimeout(toast._hideTimer);
@@ -192,11 +311,7 @@ async function send() {
     if (!text) return;
 
     // If no document uploaded, notify user and stop
-    if (!currentSession.sessionId && !currentChatId) {
-        showToast('Please upload a document first before asking questions.', 'warning');
-        promptEl.focus();
-        return;
-    }
+    // Allow all messages to go through, backend rules will handle if doc is needed.
 
     promptEl.value = '';
     resizeTextarea();
@@ -282,6 +397,10 @@ async function uploadFile() {
         currentSession.sessionId = data.session_id;
         currentSession.filename = data.filename;
 
+        // Update sidebar stats from upload response
+        // Do not overwrite sidebar totals with partial upload response counts yet.
+        // We will refresh once processing is complete.
+
         uploadStatus.innerHTML = `✔ ${file.name} uploaded successfully<br>
   <div class="session-info">
     <p class="file">✔ ${data.filename} uploaded</p>
@@ -362,12 +481,14 @@ async function checkProcessingComplete(sessionId, filename) {
             
             if (testData.context && testData.context.text_context && testData.context.text_context.length > 100) {
                 // Processing complete
+                // Processing complete
                 document.getElementById('processingRow')?.remove();
                 uploadStatus.textContent = `✅ ${filename} ready!`;
                 uploadStatus.className = 'upload-status success';
                 welcome.style.display = 'none';
                 promptEl.disabled = false;
                 promptEl.placeholder = `Ask questions about ${filename}`;
+                loadSessions(); // Refresh sidebar stats and items after processing complete
                 return;
             }
         } catch (e) {
@@ -385,47 +506,88 @@ async function checkProcessingComplete(sessionId, filename) {
 }
 
 
-/* ── CONTENT RENDERER ── */
+/* ── MARKDOWN / DIAGRAM RENDERER ── */
+
+// Configure marked once (GFM mode: tables, strikethrough, breaks)
+if (typeof marked !== 'undefined') {
+    marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+}
+
+// Configure mermaid once (dark theme matching the app)
+if (typeof mermaid !== 'undefined') {
+    mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        themeVariables: {
+            primaryColor: '#00e5a0', primaryTextColor: '#f0f4ff',
+            primaryBorderColor: '#0088ff', lineColor: '#8e9ab8',
+            background: '#080c14', mainBkg: 'rgba(0,229,160,0.08)',
+            nodeBorder: '#00e5a0', edgeLabelBackground: '#080c14',
+            clusterBkg: 'rgba(0,136,255,0.08)', titleColor: '#f0f4ff',
+        },
+        securityLevel: 'loose',
+    });
+}
+
+let _mermaidCounter = 0;
+
 function renderContent(text, isUser) {
     if (isUser) return esc(text).replace(/\n/g, '<br>');
 
-    // Extract image markdown BEFORE escaping, so they survive HTML encoding
-    const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
-    const parts = [];
-    let lastIndex = 0;
-    let match;
-    while ((match = imgRegex.exec(text)) !== null) {
-        // Push text before this image (escaped)
-        if (match.index > lastIndex) {
-            parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
-        }
-        // Extract and clean the image URL
-        const alt = match[1];
-        const rawUrl = match[2].split('|')[0].trim().replace(/%20%7C%20.*/i, '').replace(/%7C.*/i, '');
-        parts.push({ type: 'img', alt, url: rawUrl });
-        lastIndex = match.index + match[0].length;
-    }
-    // Remaining text after last image
-    if (lastIndex < text.length) {
-        parts.push({ type: 'text', content: text.slice(lastIndex) });
+    // ── Step 1: extract mermaid fences BEFORE marked processes them ──
+    const mermaidBlocks = [];
+    const PLACEHOLDER = '\x00MERMAID\x00';
+    text = text.replace(/```mermaid\n([\s\S]*?)```/gi, (_, code) => {
+        const id = _mermaidCounter++;
+        mermaidBlocks.push({ id, code: code.trim() });
+        return `${PLACEHOLDER}${id}${PLACEHOLDER}`;
+    });
+
+    // ── Step 2: run marked for full GFM (tables, headings, lists, bold…) ──
+    let html = '';
+    if (typeof marked !== 'undefined') {
+        try { html = marked.parse(text); }
+        catch (e) { html = esc(text).replace(/\n/g, '<br>'); }
+    } else {
+        html = esc(text)
+            .replace(/```[\w]*\n?([\s\S]*?)```/g, (_, c) => `<pre><code>${c.trim()}</code></pre>`)
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/\n/g, '<br>');
     }
 
-    let html = '';
-    for (const part of parts) {
-        if (part.type === 'img') {
-            html += `<div style="margin:10px 0;"><img src="${part.url}" alt="${esc(part.alt)}" style="max-width:100%;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.3);cursor:pointer;display:block;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div style="display:none;align-items:center;gap:8px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;font-size:13px;color:var(--text-2);">⚠️ Image not found: ${esc(part.url)}</div></div>`;
-        } else {
-            let h = esc(part.content);
-            h = h.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, c) => `<pre><code>${c.trim()}</code></pre>`);
-            h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
-            h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-            h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
-            h = h.replace(/\n/g, '<br>');
-            html += h;
-        }
-    }
+    // ── Step 3: replace placeholders with mermaid diagram containers ──
+    mermaidBlocks.forEach(({ id, code }) => {
+        // decode HTML entities marked may have introduced
+        const safeCode = code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+        const divId = `mermaid-${Date.now()}-${id}`;
+        const diagramDiv = `<div class="mermaid-wrap"><div class="mermaid" id="${divId}">${safeCode}</div></div>`;
+        // replace raw placeholder or any <p>…</p> wrapper marked adds
+        const re = new RegExp(`(<p>\\s*)?${PLACEHOLDER}${id}${PLACEHOLDER}(\\s*</p>)?`, 'g');
+        html = html.replace(re, diagramDiv);
+    });
+
     return html;
 }
+
+// Call after appending a bubble to the DOM to render mermaid diagrams inside it
+function renderMermaidIn(element) {
+    if (typeof mermaid === 'undefined') return;
+    const nodes = element.querySelectorAll('.mermaid');
+    if (!nodes.length) return;
+    nodes.forEach(node => {
+        const code = node.textContent.trim();
+        const svgId = node.id + '-svg';
+        node.textContent = code;
+        mermaid.render(svgId, code)
+            .then(({ svg }) => { node.innerHTML = svg; })
+            .catch(err => {
+                node.innerHTML = `<pre style="color:#ff8080;font-size:12px">Diagram error: ${esc(String(err))}</pre>`;
+            });
+    });
+}
+
 
 function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -464,12 +626,18 @@ function bindEvents() {
     document.getElementById('sidebarClose').addEventListener('click', () => setSidebarState(false));
     document.getElementById('sidebarOpen').addEventListener('click', () => setSidebarState(!sidebarOpen));
     overlay.addEventListener('click', () => setSidebarState(false));
-    document.getElementById('newChatIcon').addEventListener('click', newChat);
-    document.getElementById('topNewChat').addEventListener('click', newChat);
+    document.getElementById('newChatIcon').addEventListener('click', completelyNewChat);
+    document.getElementById('topNewChat').addEventListener('click', completelyNewChat);
+    const sidebarNewChatBtn = document.getElementById('sidebarNewChatBtn');
+    if (sidebarNewChatBtn) sidebarNewChatBtn.addEventListener('click', completelyNewChat);
     clearHistoryBtn.addEventListener('click', clearCurrentHistory);
     sendBtn.addEventListener('click', send);
     uploadBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', uploadFile);
+    
+    // Logout listener
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) logoutBtn.addEventListener('click', logout);
 
     promptEl.addEventListener('input', () => {
         resizeTextarea();
@@ -487,53 +655,44 @@ function bindEvents() {
         if (window.innerWidth > 640) overlay.classList.remove('show');
     });
 
-    // Event delegation for chat clicks (handles dynamic re-renders)
+    // Event delegation for history container (chats + sessions)
     historyContainer.addEventListener('click', (e) => {
-      // Single delete button - toggle checkboxes mode
-      if (e.target.classList.contains('delete-chat-btn')) {
-        const chatItem = e.target.closest('.chat-item');
-        if (chatItem && chatItem.dataset.chatId) {
-          e.stopPropagation();
-          e.preventDefault();
-          
-          // Toggle checkboxes visibility for all chats
-          const chatItems = document.querySelectorAll('.selectable-chat');
-          const isHidden = chatItems[0]?.querySelector('.chat-checkbox').style.display === 'none';
-          
-          chatItems.forEach(item => {
-            const cb = item.querySelector('.chat-checkbox');
-            cb.style.display = isHidden ? 'inline-block' : 'none';
-            item.classList.toggle('select-mode', !isHidden);
-          });
-          
-          if (!isHidden) {
-            // Hide checkboxes, clear selections
-            document.querySelectorAll('.chat-select-cb').forEach(cb => cb.checked = false);
-            updateBulkDeleteBtn();
-          }
-          
-          return;
-        }
-      }
-      
-      // Checkbox click
-      if (e.target.classList.contains('chat-select-cb')) {
-        updateBulkDeleteBtn();
-        return;
-      }
-      
-      // Bulk delete button click
-      if (e.target.id === 'bulkDeleteBtn' || e.target.closest('#bulkDeleteBtn')) {
+      // Three-dot menu button
+      const dotBtn = e.target.closest('.three-dot-btn');
+      if (dotBtn) {
         e.stopPropagation();
-        handleBulkDelete();
+        e.preventDefault();
+        const type = dotBtn.dataset.type;
+        if (type === 'chat') {
+          const chatId = dotBtn.dataset.chatId;
+          openContextMenu(dotBtn, [
+            {
+              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+              label: 'Delete chat',
+              danger: true,
+              action: () => deleteChat(chatId)
+            }
+          ]);
+        } else if (type === 'file') {
+          const sessionId = dotBtn.dataset.sessionId;
+          const filename  = dotBtn.dataset.filename;
+          openContextMenu(dotBtn, [
+            {
+              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+              label: 'Delete file & data',
+              danger: true,
+              action: () => deleteUploadedFile(sessionId, filename)
+            }
+          ]);
+        }
         return;
       }
 
-      
-      // Chat select (ignore checkboxes)
-      if (!e.target.closest('.chat-checkbox') && e.target.closest('.chat-item')) {
-        const chatItem = e.target.closest('.chat-item');
+      // Chat item click (load chat) — ignore if clicking the three-dot area
+      const chatItem = e.target.closest('.chat-item');
+      if (chatItem && chatItem.dataset.chatId && !e.target.closest('.three-dot-btn')) {
         loadChat(chatItem.dataset.chatId);
+        return;
       }
     });
 }
@@ -543,74 +702,78 @@ async function loadChats() {
         const res = await fetch('/chats');
         if (!res.ok) return;
         const data = await res.json();
-        console.log("📦 Chats loaded:", data.chats ? data.chats.length : 0, data.chats);
         chats = data.chats || [];
-        console.log("📦 Rendering", chats.length, "chats:", chats);
 
-// Render chat items with checkbox (sync)
-        const chatItems = chats.map(chat => {
-            const div = document.createElement('div');
-            div.className = 'history-item chat-item' + (chat.chat_id === currentChatId ? ' active' : '') + ' selectable-chat';
-            div.dataset.chatId = chat.chat_id;
-            div.innerHTML = `
-                <div class="history-title">
-                  <label class="chat-checkbox">
-                    <input type="checkbox" class="chat-select-cb" data-chat-id="${chat.chat_id}">
-                    <span class="checkmark"></span>
-                  </label>
-                  ${esc(chat.title)}
-                  <button class="delete-chat-btn" title="Delete chat">🗑</button>
-                </div>
-                <div class="history-meta">
-                    <span class="msg-count">${chat.message_count || 0} msgs</span>
-                    <span class="last-msg">${new Date(chat.timestamp * 1000).toLocaleDateString()}</span>
-                </div>
-            `;
-            return div.outerHTML;
+        // ── Chat items ──
+        const chatItemsHTML = chats.map(chat => {
+            const isActive = chat.chat_id === currentChatId ? ' active' : '';
+            const date = new Date(chat.timestamp * 1000).toLocaleDateString();
+            return `
+                <div class="history-item chat-item${isActive}" data-chat-id="${chat.chat_id}">
+                    <div class="chat-item-row">
+                        <span class="chat-item-title">${esc(chat.title)}</span>
+                        <button class="three-dot-btn" data-type="chat" data-chat-id="${chat.chat_id}" title="More options" aria-label="More options">
+                            <span>&#8942;</span>
+                        </button>
+                    </div>
+                    <div class="history-meta">
+                        <span class="msg-count">${chat.message_count || 0} msgs</span>
+                        <span class="last-msg">${date}</span>
+                    </div>
+                </div>`;
         }).join('');
 
-        // Render session items (async - await all)
+        // ── Session / uploaded file items ──
         let sessionHTML = '';
+        let totalChunksAll = 0;
+        let totalVectorsAll = 0;
         if (allSessions.length > 0) {
             const sessionPromises = allSessions.map(async session => {
+                let chunkCount = 0, vectorCount = 0;
                 try {
                     const statsRes = await fetch(`/api/session/${session.session_id}`);
                     const stats = await statsRes.json();
-                    
-                    const div = document.createElement('div');
-                    div.className = 'history-item session-item' + (session.session_id === currentSession.sessionId ? ' active' : '');
-                    div.dataset.sessionId = session.session_id;
-                    div.innerHTML = `
-                        <div class="history-title">✔ ${esc(session.filename)} uploaded</div>
+                    chunkCount  = stats.chunk_count  || 0;
+                    vectorCount = stats.vector_count || 0;
+                    totalChunksAll += chunkCount;
+                    totalVectorsAll += vectorCount;
+                } catch (_) {}
+
+                const isActive = session.session_id === currentSession.sessionId ? ' active' : '';
+                const date = new Date(session.created_at * 1000).toLocaleDateString();
+                return `
+                    <div class="history-item session-item${isActive}" data-session-id="${session.session_id}">
+                        <div class="chat-item-row">
+                            <span class="chat-item-title">📄 ${esc(session.filename)}</span>
+                            <button class="three-dot-btn" data-type="file"
+                                    data-session-id="${session.session_id}"
+                                    data-filename="${esc(session.filename)}"
+                                    title="More options" aria-label="More options">
+                                <span>&#8942;</span>
+                            </button>
+                        </div>
                         <div class="session-info">
-                          <p class="chunks">📄 Chunks: ${stats.chunk_count || 0}</p>
-                          <p class="vectors">🧠 Vectors: ${stats.vector_count || 0}</p>
+                            <span>📊 Chunks: ${chunkCount}</span>
+                            <span>🧠 Vectors: ${vectorCount}</span>
                         </div>
                         <div class="history-meta">
-                            <span class="msg-count">${session.message_count || 0} msgs</span>
-                            <span class="last-msg">${new Date(session.created_at * 1000).toLocaleDateString()}</span>
-                        </div>
-                    `;
-                    return div.outerHTML;
-                } catch (e) {
-                    console.warn(`Failed to load session stats for ${session.session_id}:`, e);
-                    return `<div class="history-item session-item">
-                        <div class="history-title">✔ ${esc(session.filename)} uploaded</div>
-                        <div class="history-meta">
-                            <span class="msg-count">${session.message_count || 0} msgs</span>
-                            <span class="last-msg">${new Date(session.created_at * 1000).toLocaleDateString()}</span>
+                            <span class="last-msg">${date}</span>
                         </div>
                     </div>`;
-                }
             });
             const sessionHTMLs = await Promise.all(sessionPromises);
-            sessionHTML = '<div class="sb-section-label">Sessions</div>' + sessionHTMLs.join('');
+            sessionHTML = `<div class="sb-section-label" style="margin-top:8px;">Uploaded Files</div>${sessionHTMLs.join('')}`;
+            // Update counts in sidebar stats
+            updateSidebarStats({ 
+                chunkCount: totalChunksAll,
+                vectorCount: totalVectorsAll
+            });
         }
 
         historyContainer.innerHTML = `
             <div class="sb-section">
                 <div class="sb-section-label">Chats</div>
-                ${chatItems}
+                ${chatItemsHTML || '<div class="empty-hint">No chats yet</div>'}
             </div>
             <div class="sb-section">${sessionHTML}</div>
         `;
@@ -630,7 +793,8 @@ async function loadSessions() {
         if (!res.ok) return;
         const data = await res.json();
         allSessions = data.sessions || [];
-        // Render sessions (now after chats)
+        // Trigger loadChats only after sessions are populated to ensure correct sidebar render
+        loadChats(); 
     } catch (e) {
         console.error('Load sessions error:', e);
     }
@@ -668,6 +832,14 @@ async function loadChat(chatId) {
         
         currentChatId = chatId;
         conversation = data.chat.messages;
+
+        // Restore context session if present
+        if (data.chat.session_id) {
+          currentSession.sessionId = data.chat.session_id;
+          currentSession.filename  = data.chat.title;
+          console.log("🔗 Restored Session ID for chat:", currentSession.sessionId);
+        }
+
         messages.innerHTML = '';
         welcome.style.display = 'none';
         promptEl.disabled = false;
@@ -681,11 +853,8 @@ async function loadChat(chatId) {
         scrollBottom(true);
 
         // Update stats
-        const stats = { message_count: data.chat.messages.length, total_tokens: 0 };
-        sbStats.innerHTML = `
-            <span>${stats.message_count} messages</span>
-            <span>0 tokens</span>
-        `;
+        // message count removed as per request, just refreshing sidebar from overall state
+        updateSidebarStats();
         const tokenCountEl = document.getElementById('tokenCount');
         if (tokenCountEl) tokenCountEl.textContent = '0 tokens';
         tokenChip.style.display = 'flex';
@@ -751,53 +920,49 @@ async function clearCurrentHistory() {
     }
 }
 
+/* ── DELETE CHAT (permanent) ── */
 async function deleteChat(chat_id) {
-  if (!confirm('Delete this chat? This cannot be undone.')) return;
+  if (!confirm('Delete this chat permanently? This cannot be undone.')) return;
   try {
-    const res = await fetch(`/chat/${chat_id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
-    
-    if (currentChatId === chat_id) {
-      newChat();
+    const res = await fetch(`/chat/${chat_id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
     }
+    console.log('[OK] Deleted chat:', chat_id);
+    if (currentChatId === chat_id) newChat();
     await loadChats();
-    console.log('Deleted chat:', chat_id);
+    showToast('Chat deleted permanently.', 'info');
   } catch (e) {
     console.error('Delete chat error:', e);
+    showToast(`Delete failed: ${e.message}`, 'warning');
   }
 }
 
-async function deleteChatNew(chat_id) {
-  /**
-   * NEW delete handler for /delete_chat endpoint (task requirement)
-   */
-  if (!confirm('Delete this chat? This action cannot be undone.')) return;
-  
+/* ── DELETE UPLOADED FILE + VECTORS (permanent) ── */
+async function deleteUploadedFile(sessionId, filename) {
+  if (!confirm(`Delete "${filename}" and all its vectors from the database? This cannot be undone.`)) return;
   try {
-    const res = await fetch(`/delete_chat/${chat_id}`, {
-      method: 'DELETE'
-    });
-    
+    const res = await fetch(`/file/${sessionId}`, { method: 'DELETE' });
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.detail || errorData.message || `HTTP ${res.status}`);
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
     }
-    
     const data = await res.json();
-    console.log('Delete success:', data);
-    
-    // If active chat deleted, reset to new chat
-    if (currentChatId === chat_id) {
-      newChat();
+    console.log('[OK] Deleted file:', data);
+
+    // If the deleted session was the active one, reset state
+    if (currentSession.sessionId === sessionId) {
+      currentSession.sessionId = null;
+      currentSession.filename  = null;
+      promptEl.placeholder = 'Upload a document to start chatting...';
     }
-    
-    // Refresh chat list
+
+    await loadSessions();
     await loadChats();
-    
+    showToast(`"${filename}" deleted from database.`, 'info');
   } catch (e) {
-    console.error('Delete chat NEW error:', e);
-    alert(`Delete failed: ${e.message}`);
+    console.error('Delete file error:', e);
+    showToast(`Delete failed: ${e.message}`, 'warning');
   }
 }

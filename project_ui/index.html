@@ -28,16 +28,20 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2m-6 5v6m4-6v6"/></svg>
           </button>
           <button class="icon-btn bulk-delete-btn" id="bulkDeleteBtn" title="Delete Selected" style="display: none;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2m-6 5v6m4-6v6"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2m-6 5v6m4-"/></svg>
           </button>
            <button class="icon-btn" id="newChatIcon" title="New chat">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </button>
         </div>
       </div>
- 
+      <div style="padding: 12px 14px 6px;">
+        <button id="sidebarNewChatBtn" class="sb-upload-btn" style="background: linear-gradient(135deg, rgba(0,229,160,0.15), rgba(0,136,255,0.1)); color: var(--text-1); border: 1px solid rgba(0,229,160,0.25);">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"/></svg>
+          New Chat
+        </button>
+      </div>
 
- 
       <div class="sb-section-label">Chats & Sessions</div>
       <div class="sb-scroll" id="historyContainer"></div>
  
@@ -162,7 +166,10 @@
     </div>
   </div>
  
-  <script src="/static/script.js?v=3"></script>
+  <!-- Markdown & Diagram libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="/static/script.js?v=6"></script>
 </body>
 </html>
 

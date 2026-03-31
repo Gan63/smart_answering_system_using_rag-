@@ -19,6 +19,7 @@ class Chat(BaseModel):
     messages: List[Dict[str, Any]]  # JSON serializable
     timestamp: float
     user_id: str = "default"
+    session_id: Optional[str] = None
 
 JSON_PATH = "data/chat_history.json"
 
@@ -63,7 +64,8 @@ class ChatStore:
             "title": title,
             "messages": messages,
             "timestamp": timestamp,
-            "user_id": user_id
+            "user_id": user_id,
+            "session_id": session_id
         }
         data = load_data()
         data.append(chat_data)

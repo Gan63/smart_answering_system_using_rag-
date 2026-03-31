@@ -18,24 +18,40 @@ def search(query: str, session_id: str, strategy: str = "text search", top_k_tex
     image_context = None
     image_paths = []
 
-    # Always search for text to provide context
-    print(f"DEBUG SEARCH text query...")
+    # Increase initial retrieval to 50 so reranker has a pool to work with
+    retrieval_limit = max(50, top_k_text)
+    
+    print(f"DEBUG SEARCH text query (retrieval_limit={retrieval_limit})...")
     text_results = text_collection.query(
         query_embeddings=[embed_text(query)],
-        n_results=top_k_text,
+        n_results=retrieval_limit,
         where={"session_id": session_id},
-        include=["documents"]
+        include=["documents", "metadatas"]
     )
     print(f"DEBUG SEARCH text results_count={len(text_results.get('documents', [[ ]])[0]) if 'documents' in text_results else 0}")
 
     # Fixed duplicate code
-    documents = text_results["documents"][0] if text_results["documents"] and text_results["documents"][0] else []
-    print(f"DEBUG documents_len={len(documents)}")
+    raw_docs = text_results["documents"][0] if text_results["documents"] and text_results["documents"][0] else []
+    raw_metas = text_results["metadatas"][0] if text_results["metadatas"] and text_results["metadatas"][0] else []
+    
+    print(f"DEBUG documents_len={len(raw_docs)}")
 
-    if documents:
+    if raw_docs:
         # Rerank to find the most relevant text snippets
-        top_docs = rerank(query, documents)[:10]
+        top_docs = rerank(query, raw_docs)[:top_k_text]
         text_context = "\n".join(top_docs)
+        
+        # Build text_results list for app.py (sources)
+        text_sources = []
+        for doc, meta in zip(raw_docs, raw_metas):
+            if doc in top_docs:
+                text_sources.append({
+                    "content": doc,
+                    "document": meta.get("source", "Unknown"),
+                    "session_id": meta.get("session_id")
+                })
+    else:
+        text_sources = []
 
     # Image search (always for multimodal) - FIXED NoneType
     try:
@@ -50,7 +66,7 @@ def search(query: str, session_id: str, strategy: str = "text search", top_k_tex
                 query_embeddings=[clip_embedding],
                 n_results=top_k_image,
                 where={"session_id": session_id},
-                include=["documents"]
+                include=["documents", "metadatas"]
             )
             image_paths = []
             if image_results and image_results["documents"] and image_results["documents"][0]:
@@ -63,6 +79,11 @@ def search(query: str, session_id: str, strategy: str = "text search", top_k_tex
         image_context = None
 
     if not text_context and not image_context:
-        return {"text_context": "No relevant documents found for this session.", "image_context": None, "image_paths": []}
+        return {"text_context": "", "image_context": None, "image_paths": [], "text_results": []}
 
-    return {"text_context": text_context, "image_context": image_context, "image_paths": image_paths}
+    return {
+        "text_context": text_context, 
+        "image_context": image_context, 
+        "image_paths": image_paths,
+        "text_results": text_sources
+    }

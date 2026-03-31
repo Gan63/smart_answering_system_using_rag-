@@ -6,7 +6,7 @@ from io import BytesIO
 from database.chroma_client import get_text_collection, get_image_collection
 from models.embedding_model import embed_text, embed_image
 
-def extract_text_and_images_from_docx(docx_path):
+def extract_text_and_images_from_docx(docx_path, session_id=""):
     text = ""
     image_paths = []
     
@@ -15,6 +15,10 @@ def extract_text_and_images_from_docx(docx_path):
     os.makedirs(image_output_dir, exist_ok=True)
     
     doc = Document(docx_path)
+    source_name = os.path.basename(docx_path)
+    
+    # Session prefix to prevent cross-session filename collisions
+    session_prefix = session_id[:8] if session_id else "nosession"
     
     # Extract text from paragraphs and tables
     for para in doc.paragraphs:
@@ -27,17 +31,22 @@ def extract_text_and_images_from_docx(docx_path):
                     text += para.text + "\n"
     
     # Extract images (inline shapes)
+    img_counter = 0
     for rel in doc.part.rels.values():
         if "image" in rel.target_ref.lower():
             image_data = rel.target_part.blob
             image_ext = os.path.splitext(rel.target_ref)[1] or ".png"
-            image_filename = f"docx_image_{uuid.uuid4().hex[:8]}{image_ext}"
+            image_filename = f"{session_prefix}_docx_image_{uuid.uuid4().hex[:8]}{image_ext}"
             image_path = os.path.join(image_output_dir, image_filename)
+            image_path = image_path.replace("\\", "/")  # Normalise to forward slashes
             
             try:
                 pil_image = PILImage.open(BytesIO(image_data))
                 pil_image.save(image_path)
-                image_paths.append(image_path)
+                caption = f"Image {img_counter + 1} from {source_name}"
+                # Store as 'path | caption' to match PDF format
+                image_paths.append(f"{image_path} | {caption}")
+                img_counter += 1
             except Exception as e:
                 print(f"Failed to save image {image_filename}: {e}")
     
@@ -54,7 +63,7 @@ def chunk_text(text, chunk_size=300):
 def ingest_docx(docx_path, session_id: str):
     source_name = os.path.basename(docx_path)
     print(f"Ingesting DOCX: {docx_path}")
-    text, image_paths = extract_text_and_images_from_docx(docx_path)
+    text, image_paths = extract_text_and_images_from_docx(docx_path, session_id=session_id)
     
     if not text and not image_paths:
         print("No content found in DOCX.")
@@ -95,7 +104,8 @@ def ingest_docx(docx_path, session_id: str):
                 image_collection.add(
                     ids=[str(uuid.uuid4())],
                     embeddings=[embedding],
-                    documents=[image_path.replace("\\", "/")],
+                    # image_path already contains 'path | caption' from extractor
+                    documents=[image_path],
                     metadatas=[{"source": source_name, "session_id": session_id}]
                 )
             except Exception as e:

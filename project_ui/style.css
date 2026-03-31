@@ -237,62 +237,104 @@ button { font-family: var(--font); cursor: pointer; border: none; background: no
   background: rgba(42,43,50,0.8);
 }
 
-.selectable-chat.select-mode {
-  padding-left: 36px;
-}
-
-.chat-checkbox {
-  display: inline-block;
-  position: relative;
+/* ── THREE-DOT BUTTON (ChatGPT style) ── */
+.three-dot-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--text-3);
+  background: transparent;
+  border: none;
   cursor: pointer;
-  margin-right: 12px;
-  vertical-align: middle;
-}
-
-.chat-select-cb {
-  position: absolute;
+  font-size: 18px;
+  line-height: 1;
   opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  pointer-events: none;
+  letter-spacing: 0;
+}
+
+.history-item:hover .three-dot-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.three-dot-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-1);
+}
+
+/* ── CONTEXT MENU POPUP ── */
+.ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 160px;
+  background: rgba(18, 22, 36, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(20px);
+  animation: ctxFadeIn 0.12s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes ctxFadeIn {
+  from { opacity: 0; transform: scale(0.94) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0); }
+}
+
+.ctx-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  height: 0;
-  width: 0;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
 }
 
-.checkmark {
-  width: 16px;
-  height: 16px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  display: inline-block;
-  position: relative;
-  top: 0;
-  left: 0;
-  transition: all 0.2s;
+.ctx-item:hover {
+  background: rgba(255, 255, 255, 0.07);
 }
 
-.chat-checkbox:hover .checkmark {
-  background: rgba(0,229,160,0.1);
-  border-color: var(--accent);
+.ctx-item.ctx-danger {
+  color: #ff6b6b;
 }
 
-.chat-select-cb:checked ~ .checkmark {
-  background: var(--accent);
-  border-color: var(--accent);
+.ctx-item.ctx-danger:hover {
+  background: rgba(255, 70, 70, 0.12);
+  color: #ff4444;
 }
 
-.chat-select-cb:checked ~ .checkmark:after {
-  content: "✓";
-  position: absolute;
-  color: #000;
+.ctx-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* Empty state hint in sidebar */
+.empty-hint {
   font-size: 12px;
-  font-weight: bold;
-  left: 2px;
-  top: 0px;
+  color: var(--text-3);
+  padding: 10px 16px;
+  text-align: center;
+  font-style: italic;
 }
 
-.bulk-delete-btn {
-  animation: pulse 2s infinite;
-}
 
 .history-item.chat-item.active {
   background: #343541;
@@ -334,21 +376,36 @@ button { font-family: var(--font); cursor: pointer; border: none; background: no
 }
  
 .sb-stats-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  padding: 0 4px;
 }
  
-.stat-chip {
-  background: rgba(255,255,255,0.04);
+.stat-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.03);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 7px 10px;
-  text-align: center;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-2);
+  transition: all 0.2s;
 }
-.stat-chip .sv { font-size: 15px; font-weight: 700; font-family: var(--font-display); color: var(--accent); }
-.stat-chip .sl { font-size: 10px; color: var(--text-3); margin-top: 1px; }
+
+.stat-pill:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.15);
+  color: var(--text-1);
+}
+
+.stat-pill svg {
+  opacity: 0.6;
+  color: var(--accent);
+}
  
 .user-row {
   display: flex;

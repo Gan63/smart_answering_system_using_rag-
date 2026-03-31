@@ -3,7 +3,7 @@ import time
 import uvicorn
 import traceback
 import uuid
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -22,11 +22,11 @@ from utils.token_counter import count_tokens_from_response
 from utils.session_manager import add_to_history, get_chat_history, get_session_stats
 from utils.chat_store import chat_store
 from utils.ai_router import AIRouter
-# from utils.auth import User, get_current_active_user
+from utils.auth import User, get_current_active_user, authenticate_user, create_access_token, register_user, update_last_login
 from typing import List, Optional
 from contextlib import asynccontextmanager
-from fastapi.security import HTTPBearer
-from fastapi import Form
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Form, Body
 from datetime import timedelta
 import secrets
 
@@ -39,13 +39,13 @@ async def lifespan(app: FastAPI):
     global llm_client
     
     # Use environment variable if set, otherwise fall back to hardcoded key
-    api_key = OPENROUTER_API_KEY or "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"
+    api_key = OPENROUTER_API_KEY or ""
     
     if not api_key:
         raise ValueError("[X] Please set OPENROUTER_API_KEY or provide a hardcoded key")
 
     llm_client = OpenAI(
-        api_key="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",
+        api_key="",
         base_url="https://openrouter.ai/api/v1"
     )
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -76,8 +76,15 @@ def ask_llm(text_context: str, images: list, question: str, max_retries: int = 3
 
             image_context_str = ""
             if show_images and images:
+                seen_urls = set()
+                unique_images = []
+                for img in images:
+                    if img["path"] not in seen_urls:
+                        seen_urls.add(img["path"])
+                        unique_images.append(img)
+                
                 image_list = []
-                for img in images[:3]:
+                for img in unique_images[:3]:
                     url = img["path"].replace("data/", "/data/")
                     caption = img.get("caption", "Relevant image")
                     image_list.append(f'  {{"url": "{url}", "caption": "{caption}"}}')
@@ -88,6 +95,12 @@ def ask_llm(text_context: str, images: list, question: str, max_retries: int = 3
 
             prompt_text = f"""You are a helpful AI assistant. You answer based on the provided context when applicable.
 
+IDENTITY:
+- You are a Smart Multimodal RAG Assistant.
+- You were created by a talented developer (Ganesh).
+- Your work includes reading, understanding, and extracting information from uploaded files like PDFs, Word documents, and images.
+- Your process involves: searching the given documents to find relevant text and images that match the user's query, analyzing this extracted context, and finally synthesizing a precise and accurate response based strictly on the uploaded content.
+
 Context:
 {text_context}
 
@@ -96,7 +109,10 @@ Context:
 CRITICAL RULES:
 1. When the user asks a factual question about the document, you MUST answer ONLY using the Context and Images provided.
 2. If the user asks a factual document question and the answer is NOT explicitly available in the Context, you MUST say "I cannot find the answer to this in the uploaded documents." DO NOT guess.
-3. If giving an image, use the exact markdown provided.
+3. If giving an image, use the exact markdown provided. For each image, strictly use this format:
+![caption](url)
+**Image Description:** <detailed description based on context>
+Never output duplicate images.
 4. You may engage in standard conversational greetings and general reasoning.
 
 Question: {question}"""
@@ -173,11 +189,20 @@ class AskRequest(BaseModel):
 class ChatRequest(BaseModel):
     chat_id: Optional[str] = None
     message: str
-    session_id: str
+    session_id: Optional[str] = None
     file_name: Optional[str] = None
     user_id: str = "default"
     top_k_text: int = 10
     top_k_image: int = 5
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class RegisterRequest(BaseModel):
+    full_name: str
+    email: str
+    password: str
 
 @app.get("/")
 async def root():
@@ -209,13 +234,56 @@ async def favicon():
     from fastapi.responses import Response
     return Response(status_code=204)
 
+# --- AUTH ENDPOINTS ---
+
+@app.post("/api/auth/register")
+async def api_register(request: RegisterRequest):
+    try:
+        user_data = register_user(request.full_name, request.email, request.password)
+        access_token = create_access_token(data={"sub": request.email})
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": user_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Register error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/api/auth/login")
+async def api_login(request: LoginRequest):
+    user = authenticate_user(request.email, request.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    update_last_login(request.email)
+    access_token = create_access_token(data={"sub": request.email})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "full_name": user["full_name"],
+            "email": user["email"]
+        }
+    }
+
+@app.get("/api/auth/me", response_model=User)
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    return current_user
+
 @app.post("/query")
 async def query_endpoint(request: AskRequest):
     try:
         context = agent_query(request.question, request.session_id, request.top_k_text, request.top_k_image)
         
         if not context or not context.get('text_context'):
-            return {"answer": "No relevant information found in the document. Try rephrasing your question after ingestion completes.", "error": "No context", "images": [], "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+            context = {"text_context": "", "images": []}
 
         text_context = context.get("text_context", "")
         image_paths = context.get("image_paths", [])
@@ -225,7 +293,6 @@ async def query_endpoint(request: AskRequest):
             answer = result["answer"]
             image_desc = result["image_desc"]
             used_vision = result["used_vision"]
-            tokens = result.get("tokens", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
             tokens = result.get("tokens", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
         else:
             answer = ask_llm(
@@ -449,8 +516,11 @@ async def get_user_history(user_id: str):
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     try:
-        # RAG context
-        context = agent_query(request.message, request.session_id, request.top_k_text, request.top_k_image)
+        if request.session_id:
+            context = agent_query(request.message, request.session_id, request.top_k_text, request.top_k_image)
+        else:
+            context = None
+            
         if not context or not context.get('text_context'):
             context = {"text_context": "", "images": []}
 
@@ -506,10 +576,18 @@ async def chat_endpoint(request: ChatRequest):
 
         # Only build the images list when the query is image-related
         if show_images:
-            images_list = [{"path": normalize_img_url(p), "caption": p.split(" | ")[1].strip() if " | " in p else "Document image"} for p in image_paths]
+            seen_urls = set()
+            images_list = []
+            for p in image_paths:
+                url = normalize_img_url(p)
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    caption = p.split(" | ")[1].strip() if " | " in p else "Document image"
+                    images_list.append({"path": url, "caption": caption})
+            
             images_list_str = [f"![{im['caption']}]({im['path']})" for im in images_list]
             image_instruction = f"Available images from the document (include them in your answer): {', '.join(images_list_str)}"
-            image_rule = "6. The user has asked to see images/diagrams. Include ALL available images using their exact markdown syntax, e.g.: ![caption](url)."
+            image_rule = "6. The user has asked to see images/diagrams. Include ALL unique available images. For each image, strictly use this format:\n![caption](url)\n**Image Description:** <detailed description based on context>\nNever output duplicate images."
         else:
             images_list = []  # No images returned for text-only queries
             image_instruction = ""  # No image section in prompt
@@ -518,7 +596,13 @@ async def chat_endpoint(request: ChatRequest):
         # Determine if we have document context for this session
         has_context = bool(text_context and text_context.strip())
 
-        system_prompt = f"""You are an intelligent, helpful AI assistant that ONLY answers questions based on the user's uploaded documents.
+        system_prompt = f"""You are an intelligent, helpful AI assistant.
+
+IDENTITY:
+- You are a Smart Multimodal RAG Assistant.
+- You were created by a talented developer (Ganesh).
+- Your work includes reading, understanding, and extracting information from uploaded files like PDFs, Word documents, and images.
+- Your process involves: taking the user's query, performing a semantic search across the uploaded documents using a vector database, retrieving the most relevant text chunks and images, and utilizing a Large Language Model to synthesize a highly accurate and contextualized answer.
 
 Context from the user's uploaded documents:
 {text_context if has_context else '[NO DOCUMENT CONTEXT AVAILABLE]'}
@@ -526,11 +610,11 @@ Context from the user's uploaded documents:
 {image_instruction}
 
 STRICT RULES - YOU MUST FOLLOW THESE WITHOUT EXCEPTION:
-1. You MUST answer ONLY from the Context provided above. Do NOT use your general training knowledge to answer any document-related questions.
-2. If the Context is empty or marked as '[NO DOCUMENT CONTEXT AVAILABLE]', you MUST respond: "No document has been uploaded yet. Please upload a PDF or DOCX document first so I can answer your questions."
-3. If the user's question cannot be answered from the Context above, respond: "I cannot find the answer to this in the uploaded document. Please check if the relevant document has been uploaded."
-4. Do NOT hallucinate, guess, or infer facts that are not explicitly in the Context.
-5. You may respond to simple greetings (e.g., "hi", "hello") briefly, but still remind the user to upload a document if no context is available.
+1. If the user asks a question about a document or its contents, you MUST answer ONLY using the Context provided above. Do NOT use your general training knowledge for document-specific questions.
+2. If the Context is empty or marked as '[NO DOCUMENT CONTEXT AVAILABLE]', you are ONLY allowed to answer questions about your IDENTITY (e.g. who created you, what your purpose is).
+3. If the Context is empty or marked as '[NO DOCUMENT CONTEXT AVAILABLE]' and the user asks ANY OTHER question (general, factual, or document-related), you MUST output exactly this exact phrase and NOTHING else: "Please upload a document first so I can answer questions about it." Do not add prefixes like "It seems that...".
+4. If the user's question is specifically about a document but cannot be answered from the Context above, respond EXACTLY with: "I cannot find the answer to this in the uploaded document."
+5. Do NOT hallucinate, guess, or infer facts about the document that are not explicitly in the Context.
 {image_rule}
 7. Do NOT output Python dictionaries or raw data structures.
 """
@@ -614,6 +698,77 @@ async def delete_session(session_id: str):
     try:
         delete_session_data(session_id)
         return {"message": f"Session {session_id} deleted."}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/file/{session_id}")
+async def delete_uploaded_file(session_id: str):
+    """
+    Delete an uploaded file and its vectors from ChromaDB.
+    Removes the physical file from disk and clears the session from the in-memory store.
+    """
+    try:
+        # Get session info before deleting
+        session = session_store.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+        filename = session.filename
+
+        # 1. Delete vectors from ChromaDB
+        try:
+            delete_session_data(session_id)
+            print(f"[INFO] Deleted ChromaDB vectors for session {session_id}")
+        except Exception as e:
+            print(f"[WARN] Could not delete ChromaDB data for {session_id}: {e}")
+
+        # 2. Remove physical file from disk
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        deleted_file = False
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            deleted_file = True
+            print(f"[INFO] Deleted file: {file_path}")
+        else:
+            print(f"[WARN] File not found on disk: {file_path}")
+
+        # Also delete any extracted images for this session (e.g. data/extracted_images/<session_id>_*.png)
+        extracted_dir = os.path.join(UPLOAD_FOLDER, "extracted_images")
+        if os.path.exists(extracted_dir):
+            for img_file in os.listdir(extracted_dir):
+                if session_id in img_file:
+                    try:
+                        os.remove(os.path.join(extracted_dir, img_file))
+                        print(f"[INFO] Deleted extracted image: {img_file}")
+                    except Exception as ie:
+                        print(f"[WARN] Could not delete image {img_file}: {ie}")
+
+        # 3. Remove from in-memory session store
+        session_store.delete_session(session_id)
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "filename": filename,
+            "file_deleted": deleted_file,
+            "message": f"File '{filename}' and its data deleted successfully."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] delete_uploaded_file: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/chats/all")
+async def delete_all_chats():
+    """Delete ALL chats permanently from the JSON database."""
+    try:
+        from utils.chat_store import save_data
+        save_data([])
+        print("[INFO] All chats deleted")
+        return {"success": True, "message": "All chats deleted."}
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
