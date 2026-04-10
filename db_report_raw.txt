@@ -1,0 +1,7 @@
+--- Local ChromaDB Check ---
+Directory vectordb exists.
+Found 2 collections:
+ - image_collection: 904 items
+   Sample Metadata: {'session_id': '68ca78a4-6d8f-45f9-b3db-d54c765452ee', 'caption': 'Figure from page 1 in Microsoft-Policymaker-Guide-Privacy.pdf', 'page': 0, 'source': 'Microsoft-Policymaker-Guide-Privacy.pdf'}
+ - text_collection: 1254 items
+   Sample Metadata: {'source': 'Microsoft-Policymaker-Guide-Privacy.pdf', 'session_id': '68ca78a4-6d8f-45f9-b3db-d54c765452ee'}

@@ -39,13 +39,13 @@ async def lifespan(app: FastAPI):
     global llm_client
     
     # Use environment variable if set, otherwise fall back to hardcoded key
-    api_key = OPENROUTER_API_KEY or ""
+    api_key = OPENROUTER_API_KEY or "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"
     
     if not api_key:
         raise ValueError("[X] Please set OPENROUTER_API_KEY or provide a hardcoded key")
 
     llm_client = OpenAI(
-        api_key="",
+        api_key="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",
         base_url="https://openrouter.ai/api/v1"
     )
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
