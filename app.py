@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from werkzeug.utils import secure_filename
-import time
+import base64
 from openai import OpenAI
 from openai import APIConnectionError, AuthenticationError
 from agent.planner import agent_query
@@ -22,6 +22,7 @@ from utils.token_counter import count_tokens_from_response
 from utils.session_manager import add_to_history, get_chat_history, get_session_stats
 from utils.chat_store import chat_store
 from utils.ai_router import AIRouter
+from utils.hybrid_router import HybridRouter, detect_mode
 from utils.auth import User, get_current_active_user, authenticate_user, create_access_token, register_user, update_last_login
 from typing import List, Optional
 from contextlib import asynccontextmanager
@@ -38,14 +39,15 @@ UPLOAD_FOLDER = "data"
 async def lifespan(app: FastAPI):
     global llm_client
     
-    # Use environment variable if set, otherwise fall back to hardcoded key
-    api_key = OPENROUTER_API_KEY or "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"
+    # Use environment variable for security
+    api_key = os.getenv("OPENROUTER_API_KEY")
     
     if not api_key:
-        raise ValueError("[X] Please set OPENROUTER_API_KEY or provide a hardcoded key")
+        print("[WARNING] OPENROUTER_API_KEY not found in environment. Using development fallback.")
+        api_key = ""
 
     llm_client = OpenAI(
-        api_key="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",
+        api_key=api_key,
         base_url="https://openrouter.ai/api/v1"
     )
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -97,7 +99,7 @@ def ask_llm(text_context: str, images: list, question: str, max_retries: int = 3
 
 IDENTITY:
 - You are a Smart Multimodal RAG Assistant.
-- You were created by a talented developer (Ganesh).
+- You were created by a talented developer and Code Assistant creator (Ganesh).
 - Your work includes reading, understanding, and extracting information from uploaded files like PDFs, Word documents, and images.
 - Your process involves: searching the given documents to find relevant text and images that match the user's query, analyzing this extracted context, and finally synthesizing a precise and accurate response based strictly on the uploaded content.
 
@@ -195,6 +197,16 @@ class ChatRequest(BaseModel):
     top_k_text: int = 10
     top_k_image: int = 5
 
+class HybridChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    chat_id: Optional[str] = None
+    file_name: Optional[str] = None
+    user_id: str = "default"
+    top_k_text: int = 10
+    top_k_image: int = 5
+    screenshot: Optional[str] = None
+
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -207,6 +219,14 @@ class RegisterRequest(BaseModel):
 @app.get("/")
 async def root():
     return FileResponse("project_ui/index.html")
+
+@app.get("/modern")
+async def modern_ui():
+    return FileResponse("project_ui/modern_chat.html")
+
+@app.get("/dashboard")
+async def dashboard_page():
+    return FileResponse("project_ui/dashboard.html")
 
 @app.get("/login")
 async def login_page():
@@ -479,6 +499,7 @@ async def get_chats():
                 {
                     "chat_id": c.chat_id,
                     "title": c.title,
+                    "file_name": getattr(c, 'file_name', None),
                     "timestamp": c.timestamp,
                     "message_count": len(c.messages),
                     "last_message": c.messages[-1]["content"][:50] + "..." if c.messages else ""
@@ -515,143 +536,27 @@ async def get_user_history(user_id: str):
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
+    """Legacy redirect to new Hybrid Chat logic."""
     try:
-        if request.session_id:
-            context = agent_query(request.message, request.session_id, request.top_k_text, request.top_k_image)
-        else:
-            context = None
-            
-        if not context or not context.get('text_context'):
-            context = {"text_context": "", "images": []}
-
-        text_context = context.get("text_context", "")
-        image_paths = context.get("image_paths", [])
-        sources = context.get("text_results", [{}]) if "text_results" in context else []
-
-        # Chat initialization logic
-        if request.chat_id is None:
-            request.chat_id = chat_store.create_chat(
-                request.file_name or "New Chat", 
-                request.message, 
-                request.session_id, 
-                request.user_id
-            )
-        else:
-            chat_store.append_message(request.chat_id, "user", request.message, [], [])
-
-        chat = chat_store.get_chat(request.chat_id)        
-        if not chat:        
-            request.chat_id = chat_store.create_chat(
-                request.file_name or "Fallback Chat",               
-                request.message,       
-                request.session_id,           
-                request.user_id
-            )  
-            chat = chat_store.get_chat(request.chat_id)
-            
-        chat_msgs = chat.messages if chat else []
-
-        router = AIRouter(llm_client)
-        if image_paths:
-            result = router.generate_response(request.message, context, image_paths)
-            image_desc = result.get("image_desc", "")
-            text_context += f"\n\n[Vision Model Image Analysis]: {image_desc}"
-            used_vision = True
-        else:
-            used_vision = False
-
-        def normalize_img_url(raw: str) -> str:
-            """Convert any stored image path → clean browser URL like /data/extracted_images/foo.png"""
-            # Strip caption suffix (e.g. 'data/extracted_images/x.png | Figure from page 1')
-            path = raw.split(" | ")[0].strip()
-            # Normalize backslashes to forward slashes
-            path = path.replace("\\", "/")
-            # Remove any leading slash duplicates
-            path = path.lstrip("/")
-            # Ensure it starts with /
-            return "/" + path
-
-        # Determine if the user is asking about images/visuals/diagrams
-        show_images = is_image_query(request.message)
-
-        # Only build the images list when the query is image-related
-        if show_images:
-            seen_urls = set()
-            images_list = []
-            for p in image_paths:
-                url = normalize_img_url(p)
-                if url not in seen_urls:
-                    seen_urls.add(url)
-                    caption = p.split(" | ")[1].strip() if " | " in p else "Document image"
-                    images_list.append({"path": url, "caption": caption})
-            
-            images_list_str = [f"![{im['caption']}]({im['path']})" for im in images_list]
-            image_instruction = f"Available images from the document (include them in your answer): {', '.join(images_list_str)}"
-            image_rule = "6. The user has asked to see images/diagrams. Include ALL unique available images. For each image, strictly use this format:\n![caption](url)\n**Image Description:** <detailed description based on context>\nNever output duplicate images."
-        else:
-            images_list = []  # No images returned for text-only queries
-            image_instruction = ""  # No image section in prompt
-            image_rule = "6. Do NOT include any images or image markdown in your answer. Answer in text only."
-
-        # Determine if we have document context for this session
-        has_context = bool(text_context and text_context.strip())
-
-        system_prompt = f"""You are an intelligent, helpful AI assistant.
-
-IDENTITY:
-- You are a Smart Multimodal RAG Assistant.
-- You were created by a talented developer (Ganesh).
-- Your work includes reading, understanding, and extracting information from uploaded files like PDFs, Word documents, and images.
-- Your process involves: taking the user's query, performing a semantic search across the uploaded documents using a vector database, retrieving the most relevant text chunks and images, and utilizing a Large Language Model to synthesize a highly accurate and contextualized answer.
-
-Context from the user's uploaded documents:
-{text_context if has_context else '[NO DOCUMENT CONTEXT AVAILABLE]'}
-
-{image_instruction}
-
-STRICT RULES - YOU MUST FOLLOW THESE WITHOUT EXCEPTION:
-1. If the user asks a question about a document or its contents, you MUST answer ONLY using the Context provided above. Do NOT use your general training knowledge for document-specific questions.
-2. If the Context is empty or marked as '[NO DOCUMENT CONTEXT AVAILABLE]', you are ONLY allowed to answer questions about your IDENTITY (e.g. who created you, what your purpose is).
-3. If the Context is empty or marked as '[NO DOCUMENT CONTEXT AVAILABLE]' and the user asks ANY OTHER question (general, factual, or document-related), you MUST output exactly this exact phrase and NOTHING else: "Please upload a document first so I can answer questions about it." Do not add prefixes like "It seems that...".
-4. If the user's question is specifically about a document but cannot be answered from the Context above, respond EXACTLY with: "I cannot find the answer to this in the uploaded document."
-5. Do NOT hallucinate, guess, or infer facts about the document that are not explicitly in the Context.
-{image_rule}
-7. Do NOT output Python dictionaries or raw data structures.
-"""
-        messages = [{"role": "system", "content": system_prompt}]
-        for m in chat_msgs:
-            messages.append({"role": m["role"], "content": m["content"]})
-        messages.append({"role": "user", "content": request.message})
-
-        response = llm_client.chat.completions.create(
-            model="meta-llama/llama-3.1-8b-instruct",
-            messages=messages,
-            temperature=0.1
+        hybrid_req = HybridChatRequest(
+            message=request.message,
+            session_id=request.session_id,
+            chat_id=request.chat_id,
+            file_name=request.file_name,
+            user_id=request.user_id,
+            top_k_text=request.top_k_text,
+            top_k_image=request.top_k_image
         )
-        answer = response.choices[0].message.content
-
-        # Store assistant response (sources/images)
-        source_paths = [s.get('document', '') for s in sources if 'document' in s]
-        
-        # We should also only store clean paths in the chat history
-        clean_image_paths = [im["path"] for im in images_list]
-        chat_store.append_message(request.chat_id, "assistant", answer, source_paths, clean_image_paths)
-
-        tokens = count_tokens_from_response(response)
-
-        return {
-            "response": answer,
-            "chat_id": request.chat_id,
-            "tokens": tokens,
-            "sources": source_paths,
-            "images": images_list
-        }
+        return await hybrid_chat_endpoint(hybrid_req)
     except Exception as e:
-        print(f"Chat error: {str(e)}")
+        print(f"Chat redirect error: {str(e)}")
+        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/chat/{chat_id}")
+
 async def get_full_chat(chat_id: str):
     try:
         chat = chat_store.get_chat(chat_id)
@@ -693,6 +598,22 @@ async def delete_chat_new(chat_id: str):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
+class RenameRequest(BaseModel):
+    title: str
+
+@app.patch("/chat/{chat_id}/rename")
+async def rename_chat(chat_id: str, request: RenameRequest):
+    """Rename a specific chat history file name/title."""
+    try:
+        success = chat_store.rename_chat(chat_id, request.title)
+        if success:
+            return {"success": True, "message": f"Chat renamed to {request.title}"}
+        else:
+            raise HTTPException(status_code=404, detail="Chat not found")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.delete("/session/{session_id}")
 async def delete_session(session_id: str):
     try:
@@ -701,6 +622,166 @@ async def delete_session(session_id: str):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+# ─── HYBRID CHAT ENDPOINT ───
+@app.post("/api/hybrid-chat")
+async def hybrid_chat_endpoint(request: HybridChatRequest):
+    """
+    Intelligent hybrid endpoint: auto-detects RAG / Code / Hybrid mode.
+    Returns structured responses with mode metadata.
+    """
+    try:
+        # 1. Retrieve context if a session exists
+        text_context = ""
+        image_paths = []
+        sources = []
+        if request.session_id:
+            context = agent_query(
+                request.message, request.session_id,
+                request.top_k_text, request.top_k_image
+            )
+            if context:
+                text_context = context.get("text_context", "")
+                image_paths = context.get("image_paths", [])
+                sources = [s.get("document", "") for s in context.get("text_results", []) if "document" in s]
+
+        # 1.5 Handle immediate screenshot if provided
+        if request.screenshot:
+            try:
+                # Remove header if exists
+                screenshot_data = request.screenshot
+                if "," in screenshot_data:
+                    screenshot_data = screenshot_data.split(",")[1]
+                
+                img_bytes = base64.b64decode(screenshot_data)
+                filename = f"capture_{int(time.time())}.png"
+                filepath = os.path.join("data", "debug_screenshots", filename)
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                with open(filepath, "wb") as f:
+                    f.write(img_bytes)
+                
+                # Add to image_paths for vision analysis
+                # Format expected by AIRouter: "path | caption"
+                image_paths.append(f"{filepath} | Immediate Screen Capture")
+                print(f"[HYBRID CHAT] Integrated immediate screenshot for analysis: {filepath}")
+            except Exception as se:
+                print(f"[ERROR] Failed to integrate screenshot: {se}")
+
+        # 2. Detect mode
+        has_context = bool(text_context and text_context.strip())
+        mode = detect_mode(request.message, has_context)
+        print(f"[HYBRID CHAT] Message: '{request.message[:50]}...' | Mode: {mode} | Context: {has_context}")
+
+        # 3. Chat history for continuity
+        chat_history = []
+        if request.chat_id:
+            chat = chat_store.get_chat(request.chat_id)
+            if chat:
+                chat_history = chat.messages[-6:]  # last 6 turns
+
+        # 4. If we have images (from RAG or immediate capture), use vision analysis
+        used_vision = False
+        image_desc = None
+        if image_paths:
+            router = AIRouter(llm_client)
+            vision_ctx = {
+                "text_context": text_context,
+                "image_paths": image_paths,
+                "text_sources": sources,
+            }
+            vision_result = router.generate_response(request.message, vision_ctx, image_paths)
+            text_context += f"\n\n[Vision Analysis]: {vision_result.get('image_desc', '')}"
+            image_desc = vision_result.get("image_desc")
+            used_vision = True
+
+        # 5. Route through HybridRouter
+        hybrid = HybridRouter(llm_client)
+        result = hybrid.route(
+            user_input=request.message,
+            text_context=text_context,
+            chat_history=chat_history,
+        )
+
+        # 5.5 Handle Image Generation if mode is IMAGE
+        generated_image_b64 = None
+        if result["mode"] == "IMAGE":
+            print(f"[HYBRID CHAT] Image generation intent detected.")
+            # If the answer is very short, it's probably a question/clarification, not a prompt
+            if len(result["answer"]) > 20: 
+                from utils.ai_router import AIRouter
+                print(f"[HYBRID CHAT] Generating image with prompt: {result['answer'][:100]}...")
+                try:
+                    router = AIRouter(llm_client)
+                    generated_image_b64 = router.generate_image(result["answer"])
+                    if generated_image_b64:
+                        result["answer"] = f"🎨 **Generated Image**: {result['answer']}\n\nI have generated the image based on your request. You can see it below."
+                    else:
+                        result["answer"] = f"⚠️ **Generation Failed**: I created a prompt but the image service failed to respond. \n\n**Prompt**: {result['answer']}"
+                except Exception as ex:
+                    print(f"[ERROR] Image generation failed: {ex}")
+                    result["answer"] = f"❌ **Error**: Image generation failed. \n\nDetails: {str(ex)}"
+            else:
+                print(f"[HYBRID CHAT] LLM asked a clarifying question instead of generating a prompt.")
+
+        # 6. Manage chat persistence
+        if request.chat_id is None:
+            request.chat_id = chat_store.create_chat(
+                request.file_name or "New Chat",
+                request.message,
+                request.session_id,
+                request.user_id,
+            )
+        else:
+            chat_store.append_message(request.chat_id, "user", request.message, [], [])
+
+        # Build image list for response
+        show_images = is_image_query(request.message) or result["mode"] == "IMAGE"
+        images_list = []
+        
+        # Add generated image if successful
+        if generated_image_b64:
+            images_list.append({
+                "path": f"data:image/png;base64,{generated_image_b64}",
+                "caption": "Generated Image"
+            })
+
+        if show_images and image_paths:
+            seen = set()
+            for p in image_paths:
+                path = p.split(" | ")[0].strip().replace("\\", "/").lstrip("/")
+                url = "/" + path
+                if url not in seen:
+                    seen.add(url)
+                    caption = p.split(" | ")[1].strip() if " | " in p else "Document image"
+                    images_list.append({"path": url, "caption": caption})
+
+        clean_image_paths = [im["path"] for im in images_list]
+        chat_store.append_message(
+            request.chat_id, "assistant", result["answer"], sources[:5], clean_image_paths
+        )
+
+        return {
+            "response": result["answer"],
+            "mode": result["mode"],
+            "model": result["model"],
+            "chat_id": request.chat_id,
+            "used_vision": used_vision,
+            "image_desc": image_desc,
+            "sources": sources[:5],
+            "images": images_list,
+            "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+    except Exception as e:
+        print(f"Hybrid chat error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/detect-mode")
+async def detect_mode_endpoint(q: str, has_context: bool = False):
+    """Lightweight mode-detection preview (no LLM call)."""
+    mode = detect_mode(q, has_context)
+    return {"mode": mode, "query": q}
 
 @app.delete("/file/{session_id}")
 async def delete_uploaded_file(session_id: str):
@@ -783,6 +864,37 @@ async def bulk_delete_chats(chat_ids: List[str]):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/debug/screenshot")
+async def save_debug_screenshot(request: Request):
+    """
+    Saves a screenshot from the frontend for debugging purposes.
+    The filename is printed to the terminal to help logs context.
+    """
+    try:
+        data = await request.json()
+        image_data = data.get("image")
+        if not image_data:
+            raise HTTPException(status_code=400, detail="No image data provided")
+        
+        # Remove header if exists (e.g., data:image/png;base64,)
+        header = ""
+        if "," in image_data:
+            header, image_data = image_data.split(",", 1)
+            
+        img_bytes = base64.b64decode(image_data)
+        filename = f"debug_{int(time.time())}.png"
+        filepath = os.path.join("data", "debug_screenshots", filename)
+        
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, "wb") as f:
+            f.write(img_bytes)
+            
+        print(f"\n📸 [DEBUG] Screenshot captured and saved to: {filepath}")
+        return {"success": True, "path": filepath, "filename": filename}
+    except Exception as e:
+        print(f"❌ [DEBUG] Failed to save screenshot: {e}")
+        return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":

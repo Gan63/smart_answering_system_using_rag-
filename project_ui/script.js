@@ -14,6 +14,7 @@ let conversation = [];
 let chats = [];
 let isLoading = false;
 let sidebarOpen = true;
+let _modePreviewTimer = null;  // for live mode detection preview
 
 /* ── HISTORY ── */
 const historyContainer = document.getElementById('historyContainer');
@@ -194,7 +195,7 @@ function appendBubble(role, content) {
     appendBubbleWithMeta(role, content);
 }
 
-function appendBubbleWithMeta(role, content, sources = [], images = []) {
+function appendBubbleWithMeta(role, content, sources = [], images = [], modeBadgeHTML = '') {
     const row = document.createElement('div');
     row.className = `msg-row ${role}`;
     const isUser = role === 'user';
@@ -207,7 +208,7 @@ function appendBubbleWithMeta(role, content, sources = [], images = []) {
             let src = img.path || img.url || '';
             // Safety: normalize backslashes, ensure leading slash
             src = src.replace(/\\/g, '/').split(' | ')[0].trim();
-            if (src && !src.startsWith('/')) src = '/' + src;
+            if (src && !src.startsWith('/') && !src.startsWith('data:') && !src.startsWith('http')) src = '/' + src;
             const caption = img.caption || `Image ${idx + 1}`;
             const escapedSrc = src.replace(/"/g, '%22');
             return `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:4px;margin:4px;">
@@ -231,6 +232,7 @@ function appendBubbleWithMeta(role, content, sources = [], images = []) {
         <div class="msg-inner">
             ${!isUser ? `<div class="msg-avatar ai">R</div>` : ''}
             <div class="msg-content-wrap" style="flex:1;min-width:0">
+                ${!isUser && modeBadgeHTML ? modeBadgeHTML : ''}
                 <div class="msg-bubble">${renderContent(content, isUser)}${imageGalleryHTML}</div>
                 ${metaHTML}
             </div>
@@ -239,6 +241,8 @@ function appendBubbleWithMeta(role, content, sources = [], images = []) {
     `;
 
     messages.appendChild(row);
+    renderMermaidIn(row);
+    setupCodeBlocks(row);
     scrollBottom(true);
     return row;
 }
@@ -305,10 +309,10 @@ function showToast(message, type = 'warning') {
     }, 3500);
 }
 
-async function send() {
+async function send(overrideMsg = null, screenshotB64 = null) {
     if (isLoading) return;
-    const text = promptEl.value.trim();
-    if (!text) return;
+    const text = overrideMsg || promptEl.value.trim();
+    if (!text && !screenshotB64) return;
 
     // If no document uploaded, notify user and stop
     // Allow all messages to go through, backend rules will handle if doc is needed.
@@ -318,6 +322,7 @@ async function send() {
     sendBtn.disabled = true;
     isLoading = true;
     welcome.style.display = 'none';
+    hideModePreview();
 
     appendBubble('user', text);
     showLoading();
@@ -327,9 +332,10 @@ async function send() {
             message: text,
             session_id: currentSession.sessionId,
             file_name: currentSession.filename,
-            chat_id: currentChatId
+            chat_id: currentChatId,
+            screenshot: screenshotB64 // Optional vision context
         };
-        const res = await fetch(`/chat`, {
+        const res = await fetch(`/api/hybrid-chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -341,7 +347,15 @@ async function send() {
         }
         const data = await res.json();
         hideLoading();
-        appendBubbleWithMeta('ai', data.response, data.sources || [], data.images || []);
+
+        // Build mode badge HTML
+        const modeInfo = getModeInfo(data.mode);
+        const modeBadgeHTML = `<div class="mode-badge mode-${(data.mode || 'rag').toLowerCase()}">
+            <span class="mode-icon">${modeInfo.icon}</span>
+            <span class="mode-label">${modeInfo.label}</span>
+        </div>`;
+
+        appendBubbleWithMeta('ai', data.response, data.sources || [], data.images || [], modeBadgeHTML);
         // Update token count
         const tokenCountEl = document.getElementById('tokenCount');
         if (tokenCountEl && data.tokens && data.tokens.total_tokens !== undefined) {
@@ -349,7 +363,7 @@ async function send() {
           tokenChip.style.display = 'flex';
         }
         if (data.chat_id) currentChatId = data.chat_id;
-        console.log("Updated Current Chat ID:", currentChatId);
+        console.log("Updated Current Chat ID:", currentChatId, "Mode:", data.mode);
 
     } catch (err) {
         hideLoading();
@@ -359,6 +373,53 @@ async function send() {
         sendBtn.disabled = promptEl.value.trim().length === 0;
         promptEl.focus();
     }
+}
+
+/* ── MODE HELPERS ── */
+function getModeInfo(mode) {
+    switch ((mode || '').toUpperCase()) {
+        case 'CODE':   return { icon: '💻', label: 'Code Assistant' };
+        case 'HYBRID': return { icon: '🔀', label: 'Hybrid Mode' };
+        case 'DS':     return { icon: '📊', label: 'Data Science' };
+        case 'STUDY':  return { icon: '🧠', label: 'Study Mode' };
+        case 'CAREER': return { icon: '💼', label: 'Career Advisor' };
+        case 'IMAGE':  return { icon: '🎨', label: 'Image Prompt' };
+        case 'REPORT': return { icon: '📄', label: 'Formal Report' };
+        case 'RAG':
+        default:       return { icon: '📚', label: 'RAG Mode' };
+    }
+}
+
+function showModePreview(mode) {
+    let el = document.getElementById('modePreview');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'modePreview';
+        el.className = 'mode-preview';
+        const inputArea = document.querySelector('.input-area');
+        if (inputArea) inputArea.insertBefore(el, inputArea.firstChild);
+    }
+    const info = getModeInfo(mode);
+    el.innerHTML = `${info.icon} <span>${info.label}</span>`;
+    el.className = `mode-preview mode-preview-${mode.toLowerCase()}`;
+    el.style.display = 'flex';
+}
+
+function hideModePreview() {
+    const el = document.getElementById('modePreview');
+    if (el) el.style.display = 'none';
+}
+
+async function detectModePreview(text) {
+    if (!text || text.length < 3) { hideModePreview(); return; }
+    try {
+        const hasCtx = !!currentSession.sessionId;
+        const res = await fetch(`/api/detect-mode?q=${encodeURIComponent(text)}&has_context=${hasCtx}`);
+        if (res.ok) {
+            const data = await res.json();
+            showModePreview(data.mode);
+        }
+    } catch(_) {}
 }
 
 /* ── UPLOAD ── */
@@ -588,6 +649,36 @@ function renderMermaidIn(element) {
     });
 }
 
+// ── NEW: Code Block Copy Feature ──
+function setupCodeBlocks(element) {
+    const codeBlocks = element.querySelectorAll('pre');
+    codeBlocks.forEach(block => {
+        if (block.querySelector('.copy-code-btn')) return; // Avoid duplicates
+        
+        const button = document.createElement('button');
+        button.className = 'copy-code-btn';
+        button.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            <span>Copy</span>
+        `;
+        
+        button.onclick = () => {
+            const code = block.querySelector('code').innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                button.classList.add('copied');
+                button.querySelector('span').innerText = 'Copied!';
+                setTimeout(() => {
+                    button.classList.remove('copied');
+                    button.querySelector('span').innerText = 'Copy';
+                }, 2000);
+            });
+        };
+        
+        block.style.position = 'relative';
+        block.appendChild(button);
+    });
+}
+
 
 function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -623,78 +714,133 @@ function scrollBottom(smooth) {
 
 /* ── EVENTS ── */
 function bindEvents() {
-    document.getElementById('sidebarClose').addEventListener('click', () => setSidebarState(false));
-    document.getElementById('sidebarOpen').addEventListener('click', () => setSidebarState(!sidebarOpen));
-    overlay.addEventListener('click', () => setSidebarState(false));
-    document.getElementById('newChatIcon').addEventListener('click', completelyNewChat);
-    document.getElementById('topNewChat').addEventListener('click', completelyNewChat);
-    const sidebarNewChatBtn = document.getElementById('sidebarNewChatBtn');
-    if (sidebarNewChatBtn) sidebarNewChatBtn.addEventListener('click', completelyNewChat);
-    clearHistoryBtn.addEventListener('click', clearCurrentHistory);
-    sendBtn.addEventListener('click', send);
-    uploadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', uploadFile);
-    
-    // Logout listener
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) logoutBtn.addEventListener('click', logout);
+    console.log("🔗 Binding UI events...");
 
-    promptEl.addEventListener('input', () => {
-        resizeTextarea();
-        // Send button enabled as long as there is text — doc check happens on send()
-        sendBtn.disabled = !promptEl.value.trim() || isLoading;
-    });
-    promptEl.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            if (!sendBtn.disabled) send();
+    const safeBind = (id, event, fn) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener(event, fn);
+        } else {
+            console.warn(`[WARN] Element #${id} not found. Skipping binding.`);
+        }
+    };
+
+    safeBind('sidebarClose', 'click', () => setSidebarState(false));
+    safeBind('sidebarOpen', 'click', () => setSidebarState(!sidebarOpen));
+    safeBind('sidebarToggle', 'click', () => {
+        sidebar.classList.toggle('hidden');
+        if (window.innerWidth <= 640) {
+            overlay.classList.toggle('show');
         }
     });
+
+    if (overlay) overlay.addEventListener('click', () => setSidebarState(false));
+
+    safeBind('newChatIcon', 'click', completelyNewChat);
+    safeBind('topNewChat', 'click', completelyNewChat);
+    safeBind('sidebarNewChatBtn', 'click', completelyNewChat);
+    safeBind('clearHistoryBtn', 'click', clearCurrentHistory);
+    safeBind('sendBtn', 'click', send);
+    
+    const uploadBtnEl = document.getElementById('uploadBtn');
+    if (uploadBtnEl) {
+        uploadBtnEl.addEventListener('click', () => {
+            const fi = document.getElementById('fileInput');
+            if (fi) fi.click();
+        });
+    }
+
+    const fileInputEl = document.getElementById('fileInput');
+    if (fileInputEl) fileInputEl.addEventListener('change', uploadFile);
+    
+    safeBind('logoutBtn', 'click', logout);
+
+    if (promptEl) {
+        promptEl.addEventListener('input', () => {
+            resizeTextarea();
+            sendBtn.disabled = !promptEl.value.trim() || isLoading;
+            clearTimeout(_modePreviewTimer);
+            _modePreviewTimer = setTimeout(() => {
+                detectModePreview(promptEl.value.trim());
+            }, 400);
+        });
+        promptEl.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!sendBtn.disabled) send();
+            }
+        });
+    }
+
+    // Starter Buttons
+    document.querySelectorAll('.starter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const q = btn.dataset.q;
+            if (q) {
+                promptEl.value = q;
+                resizeTextarea();
+                send();
+            }
+        });
+    });
+
+    safeBind('micBtn', 'click', toggleSpeech);
+    safeBind('screenshotBtn', 'click', captureScreenshot);
 
     window.addEventListener('resize', () => {
-        if (window.innerWidth > 640) overlay.classList.remove('show');
+        const ov = document.getElementById('overlay');
+        if (window.innerWidth > 640 && ov) ov.classList.remove('show');
     });
 
-    // Event delegation for history container (chats + sessions)
-    historyContainer.addEventListener('click', (e) => {
-      // Three-dot menu button
-      const dotBtn = e.target.closest('.three-dot-btn');
-      if (dotBtn) {
-        e.stopPropagation();
-        e.preventDefault();
-        const type = dotBtn.dataset.type;
-        if (type === 'chat') {
-          const chatId = dotBtn.dataset.chatId;
-          openContextMenu(dotBtn, [
-            {
-              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
-              label: 'Delete chat',
-              danger: true,
-              action: () => deleteChat(chatId)
+    if (historyContainer) {
+        historyContainer.addEventListener('click', (e) => {
+            // Delegation for menu/items
+            const dotBtn = e.target.closest('.three-dot-btn');
+            if (dotBtn) {
+                handleMenuClick(e, dotBtn);
+                return;
             }
-          ]);
-        } else if (type === 'file') {
-          const sessionId = dotBtn.dataset.sessionId;
-          const filename  = dotBtn.dataset.filename;
-          openContextMenu(dotBtn, [
-            {
-              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
-              label: 'Delete file & data',
-              danger: true,
-              action: () => deleteUploadedFile(sessionId, filename)
+            const chatItem = e.target.closest('.chat-item');
+            if (chatItem && chatItem.dataset.chatId && !e.target.closest('.three-dot-btn')) {
+                loadChat(chatItem.dataset.chatId);
             }
-          ]);
-        }
-        return;
-      }
+        });
+    }
+    
+    console.log("✅ All UI bindings complete.");
+}
 
-      // Chat item click (load chat) — ignore if clicking the three-dot area
-      const chatItem = e.target.closest('.chat-item');
-      if (chatItem && chatItem.dataset.chatId && !e.target.closest('.three-dot-btn')) {
-        loadChat(chatItem.dataset.chatId);
-        return;
-      }
-    });
+function handleMenuClick(e, dotBtn) {
+    e.stopPropagation();
+    e.preventDefault();
+    const type = dotBtn.dataset.type;
+    if (type === 'chat') {
+        const chatId = dotBtn.dataset.chatId;
+        openContextMenu(dotBtn, [
+            {
+                icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+                label: 'Rename',
+                action: () => renameChat(chatId, dotBtn.dataset.title)
+            },
+            {
+                icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+                label: 'Delete chat',
+                danger: true,
+                action: () => deleteChat(chatId)
+            }
+        ]);
+    } else if (type === 'file') {
+        const sessionId = dotBtn.dataset.sessionId;
+        const filename = dotBtn.dataset.filename;
+        openContextMenu(dotBtn, [
+            {
+                icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18m-2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+                label: 'Delete file & data',
+                danger: true,
+                action: () => deleteUploadedFile(sessionId, filename)
+            }
+        ]);
+    }
 }
 
 async function loadChats() {
@@ -708,17 +854,21 @@ async function loadChats() {
         const chatItemsHTML = chats.map(chat => {
             const isActive = chat.chat_id === currentChatId ? ' active' : '';
             const date = new Date(chat.timestamp * 1000).toLocaleDateString();
+            const fileNameHTML = chat.file_name ? `<span class="file-name-meta" title="Source: ${esc(chat.file_name)}">📁 ${esc(chat.file_name)}</span>` : '';
             return `
                 <div class="history-item chat-item${isActive}" data-chat-id="${chat.chat_id}">
                     <div class="chat-item-row">
                         <span class="chat-item-title">${esc(chat.title)}</span>
-                        <button class="three-dot-btn" data-type="chat" data-chat-id="${chat.chat_id}" title="More options" aria-label="More options">
+                        <button class="three-dot-btn" data-type="chat" data-chat-id="${chat.chat_id}" data-title="${esc(chat.title)}" title="More options" aria-label="More options">
                             <span>&#8942;</span>
                         </button>
                     </div>
                     <div class="history-meta">
-                        <span class="msg-count">${chat.message_count || 0} msgs</span>
-                        <span class="last-msg">${date}</span>
+                        ${fileNameHTML}
+                        <div style="display:flex; gap:8px;">
+                           <span class="msg-count">${chat.message_count || 0} msgs</span>
+                           <span class="last-msg">${date}</span>
+                        </div>
                     </div>
                 </div>`;
         }).join('');
@@ -836,7 +986,7 @@ async function loadChat(chatId) {
         // Restore context session if present
         if (data.chat.session_id) {
           currentSession.sessionId = data.chat.session_id;
-          currentSession.filename  = data.chat.title;
+          currentSession.filename  = data.chat.file_name || data.chat.title;
           console.log("🔗 Restored Session ID for chat:", currentSession.sessionId);
         }
 
@@ -939,6 +1089,35 @@ async function deleteChat(chat_id) {
   }
 }
 
+/* ── RENAME CHAT ── */
+async function renameChat(chat_id, current_title) {
+  const newTitle = prompt('Rename this chat history:', current_title);
+  if (!newTitle || newTitle.trim() === '' || newTitle === current_title) return;
+
+  try {
+    const res = await fetch(`/chat/${chat_id}/rename`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: newTitle.trim() })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+
+    console.log('[OK] Renamed chat:', chat_id);
+    if (currentChatId === chat_id) {
+       modelLabel.textContent = newTitle.trim();
+    }
+    await loadChats();
+    showToast('Chat renamed successfully.', 'info');
+  } catch (e) {
+    console.error('Rename error:', e);
+    showToast(`Rename failed: ${e.message}`, 'warning');
+  }
+}
+
 /* ── DELETE UPLOADED FILE + VECTORS (permanent) ── */
 async function deleteUploadedFile(sessionId, filename) {
   if (!confirm(`Delete "${filename}" and all its vectors from the database? This cannot be undone.`)) return;
@@ -961,8 +1140,128 @@ async function deleteUploadedFile(sessionId, filename) {
     await loadSessions();
     await loadChats();
     showToast(`"${filename}" deleted from database.`, 'info');
-  } catch (e) {
+    } catch (e) {
     console.error('Delete file error:', e);
     showToast(`Delete failed: ${e.message}`, 'warning');
   }
 }
+
+/* ── VOICE / SPEECH RECOGNITION ── */
+let recognition = null;
+let isRecording = false;
+
+function toggleSpeech() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        showToast("Speech recognition not supported in this browser.", "warning");
+        return;
+    }
+
+    if (!recognition) {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = () => {
+            isRecording = true;
+            document.getElementById('micBtn').classList.add('recording');
+            document.getElementById('micBtn').style.color = '#ff4b4b';
+            promptEl.placeholder = "Listening...";
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            promptEl.value = transcript;
+            resizeTextarea();
+            sendBtn.disabled = false;
+            // Optionally auto-send
+            // send();
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Speech error:', event.error);
+            stopRecording();
+            showToast(`Speech error: ${event.error}`, "warning");
+        };
+
+        recognition.onend = () => {
+            stopRecording();
+        };
+    }
+
+    if (isRecording) {
+        recognition.stop();
+    } else {
+        recognition.start();
+    }
+}
+
+function stopRecording() {
+    isRecording = false;
+    const micBtn = document.getElementById('micBtn');
+    if (micBtn) {
+        micBtn.classList.remove('recording');
+        micBtn.style.color = '';
+    }
+    promptEl.placeholder = currentSession.sessionId 
+        ? `Ask questions about ${currentSession.filename}` 
+        : 'Upload a document to start chatting...';
+}
+
+/* ── DEBUG SCREENSHOT (Screen Capture API) ── */
+async function captureScreenshot() {
+    const btn = document.getElementById('screenshotBtn');
+    if (!btn) return;
+    
+    const originalHTML = btn.innerHTML;
+    
+    try {
+        btn.disabled = true;
+        btn.classList.add('loading');
+        
+        showToast("Select a window or screen to analyze", "info");
+        
+        // 1. Request Screen Media (allows capturing other windows/screens)
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { cursor: "always" },
+            audio: false
+        });
+        
+        // 2. Capture a frame from the stream
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        await video.play();
+        
+        // Create canvas to draw the frame
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // 3. Stop all tracks in the stream
+        stream.getTracks().forEach(track => track.stop());
+        
+        const imageData = canvas.toDataURL('image/png');
+        
+        // 4. Trigger send process
+        const currentMsg = promptEl.value.trim() || "Analyze this screen capture in detail. Describe the content and help me understand it.";
+        await send(currentMsg, imageData);
+        
+        showToast(`Capture sent for analysis`, 'info');
+
+    } catch (err) {
+        if (err.name === 'NotAllowedError') {
+            showToast('Capture cancelled by user', 'warning');
+        } else {
+            console.error('❌ Screen capture failed:', err);
+            showToast('Screen capture failed. Check console.', 'warning');
+        }
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.innerHTML = originalHTML;
+    }
+}
+

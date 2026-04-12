@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus | Intelligence Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/framer-motion@11.0.8/dist/framer-motion.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Outfit', sans-serif; }
+    h1, h2, h3, .font-display { font-family: 'Syne', sans-serif; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.05); }
+    .accent-gradient { background: linear-gradient(135deg, #00e5a0 0%, #0088ff 100%); }
+    .markdown-content p { margin-bottom: 0.75rem; }
+    .markdown-content code { background: rgba(255,255,255,0.08); padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.9em; }
+  </style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            accent: '#00e5a0',
+            brand: '#0088ff'
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-[#050505] text-gray-200 overflow-hidden">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const { motion, AnimatePresence } = FramerMotion;
+
+    const Dashboard = () => {
+      const [view, setView] = useState('chat'); // chat, knowledge, activities
+      const [sessions, setSessions] = useState([]);
+      const [chats, setChats] = useState([]);
+      const [allMessages, setMessages] = useState([
+        { id: 1, role: 'assistant', content: '# Welcome to your Command Center\nI am synced with your knowledge base. How can I assist your research today?' }
+      ]);
+      const [inputValue, setInputValue] = useState('');
+      const [isTyping, setIsTyping] = useState(false);
+      const [user, setUser] = useState({ name: 'Ganesh', plan: 'Enterprise' });
+      
+      const scrollRef = useRef(null);
+
+      useEffect(() => {
+        fetchData();
+        const interval = setInterval(fetchData, 30000);
+        return () => clearInterval(interval);
+      }, []);
+
+      useEffect(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+      }, [allMessages, isTyping, view]);
+
+      const fetchData = async () => {
+        try {
+          const [sRes, cRes] = await Promise.all([
+            fetch('/sessions'),
+            fetch('/chats')
+          ]);
+          const [sData, cData] = await Promise.all([sRes.json(), cRes.json()]);
+          setSessions(sData.sessions || []);
+          setChats(cData.chats || []);
+        } catch (e) {
+          console.error("Fetch failed", e);
+        }
+      };
+
+      const handleSend = () => {
+        if (!inputValue.trim()) return;
+        const userMsg = { id: Date.now(), role: 'user', content: inputValue };
+        setMessages(prev => [...prev, userMsg]);
+        setInputValue('');
+        setIsTyping(true);
+
+        // Simulated backend logic
+        setTimeout(() => {
+          setIsTyping(false);
+          const aiMsg = { 
+            id: Date.now() + 1, 
+            role: 'assistant', 
+            content: `### Insight Generated\nBased on your query and indexed data, I recommend focusing on the architectural patterns defined in the recent uploads.` 
+          };
+          setMessages(prev => [...prev, aiMsg]);
+        }, 1500);
+      };
+
+      return (
+        <div className="flex h-screen w-full relative">
+          
+          {/* BACKGROUND DECOR */}
+          <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-brand/10 rounded-full blur-[120px]" />
+          <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-accent/10 rounded-full blur-[120px]" />
+
+          {/* SIDEBAR */}
+          <aside className="w-20 md:w-72 flex flex-col border-r border-white/5 bg-black/40 backdrop-blur-xl z-30 transition-all duration-500 overflow-hidden">
+            <div className="p-8 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-brand flex items-center justify-center font-black text-black">N</div>
+              <span className="text-xl font-bold tracking-tighter font-display hidden md:block">NEXUS</span>
+            </div>
+
+            <nav className="flex-1 px-4 py-10 space-y-2">
+              <NavItem active={view === 'chat'} icon="💬" label="Intelligence" onClick={() => setView('chat')} />
+              <NavItem active={view === 'knowledge'} icon="📚" label="Knowledge Base" onClick={() => setView('knowledge')} />
+              <NavItem active={view === 'activities'} icon="📊" label="Activities" onClick={() => setView('activities')} />
+            </nav>
+
+            <div className="p-8 mt-auto border-t border-white/5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center border border-white/20 font-bold">{user.name[0]}</div>
+                <div className="hidden md:block">
+                  <p className="text-sm font-bold">{user.name}</p>
+                  <p className="text-[10px] text-accent font-black uppercase tracking-widest">{user.plan}</p>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          {/* MAIN CONTENT */}
+          <main className="flex-1 flex flex-col relative min-w-0">
+            
+            {/* HEADER */}
+            <header className="h-24 flex items-center justify-between px-10 border-b border-white/5 bg-black/20 backdrop-blur-md z-20">
+              <div>
+                <h2 className="text-sm font-black uppercase tracking-[0.3em] opacity-40 font-display">
+                  {view === 'chat' ? 'Conversational Intelligence' : view === 'knowledge' ? 'Core Repository' : 'System Telemetry'}
+                </h2>
+                <h1 className="text-2xl font-bold font-display">{view === 'chat' ? 'Neural Workspace' : view === 'knowledge' ? 'Document Index' : 'Usage Metrics'}</h1>
+              </div>
+              
+              <div className="flex gap-4">
+                <div className="glass px-6 py-3 rounded-2xl flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                  <span className="text-xs font-bold tracking-widest uppercase">Nodes Online</span>
+                </div>
+              </div>
+            </header>
+
+            {/* DYNAMIC VIEWS */}
+            <div className="flex-1 relative overflow-hidden">
+              <AnimatePresence mode="wait">
+                
+                {view === 'chat' && (
+                  <motion.div key="chat" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="h-full flex flex-col items-center">
+                    <div ref={scrollRef} className="flex-1 w-full max-w-4xl overflow-y-auto pt-10 pb-40 px-6 no-scrollbar">
+                      <div className="space-y-10">
+                        {allMessages.map(msg => (
+                          <div key={msg.id} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[85%] px-7 py-5 rounded-[2rem] shadow-2xl relative ${msg.role === 'user' ? 'bg-[#151515] border border-white/10 text-white rounded-tr-md' : 'glass rounded-tl-md text-gray-300'}`}>
+                              <div className="markdown-content" dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}></div>
+                            </div>
+                          </div>
+                        ))}
+                        {isTyping && (
+                          <div className="flex justify-start">
+                            <div className="glass px-8 py-5 rounded-[1.5rem] flex gap-2">
+                                <div className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" />
+                                <div className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce delay-75" />
+                                <div className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce delay-150" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="absolute bottom-10 left-0 right-0 px-6 z-20">
+                      <div className="max-w-3xl mx-auto backdrop-blur-3xl overflow-hidden rounded-[2.5rem] p-1 glass border-white/10">
+                        <div className="flex items-center gap-2 p-2 bg-[#080808]/60 rounded-[2.2rem]">
+                          <button className="p-4 text-gray-500 hover:text-accent transition-all">+</button>
+                          <textarea 
+                            rows="1" 
+                            className="flex-1 bg-transparent border-none focus:ring-0 text-white font-medium px-4 py-4 resize-none no-scrollbar"
+                            placeholder="Interrogate your knowledge base..."
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                          />
+                          <button onClick={handleSend} disabled={!inputValue.trim()} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${inputValue.trim() ? 'bg-accent text-black scale-100 shadow-[0_0_20px_rgba(0,229,160,0.4)]' : 'bg-white/5 text-gray-700 scale-95'}`}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {view === 'knowledge' && (
+                  <motion.div key="knowledge" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="p-10 h-full overflow-y-auto no-scrollbar">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {sessions.length > 0 ? sessions.map(session => (
+                        <div key={session.session_id} className="glass p-8 rounded-[2rem] hover:border-accent/40 transition-all group overflow-hidden relative">
+                           <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 rounded-full blur-3xl group-hover:bg-accent/10 transition-all" />
+                           <h3 className="text-xl font-bold mb-4 font-display truncate">{session.filename}</h3>
+                           <div className="space-y-3 opacity-60">
+                             <div className="flex items-center justify-between text-xs">
+                               <span>Indexed Chunks</span>
+                               <span className="font-bold text-accent">{session.chunk_count || 0}</span>
+                             </div>
+                             <div className="flex items-center justify-between text-xs">
+                               <span>Vector Embeddings</span>
+                               <span className="font-bold text-brand">{session.vector_count || 0}</span>
+                             </div>
+                           </div>
+                           <button className="mt-8 w-full py-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all font-bold text-sm">Analyze Document</button>
+                        </div>
+                      )) : (
+                        <div className="col-span-full py-40 text-center glass rounded-[3rem]">
+                           <span className="text-6xl mb-6 block">📂</span>
+                           <h2 className="text-2xl font-bold mb-2">No documents indexed</h2>
+                           <p className="opacity-50 max-w-sm mx-auto">Upload files to populate your neural knowledge base and start generating insights.</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+
+                {view === 'activities' && (
+                  <motion.div key="activities" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-10 h-full overflow-y-auto no-scrollbar">
+                     <div className="max-w-4xl mx-auto space-y-6">
+                        <div className="grid grid-cols-3 gap-6 mb-10">
+                           <StatCard label="Total Chats" val={chats.length} sub="+2 today" />
+                           <StatCard label="Token Consumption" val="84.2k" sub="Within limit" />
+                           <StatCard label="System Integrity" val="99.9%" sub="All nodes synced" />
+                        </div>
+                        <h3 className="text-sm font-black uppercase tracking-widest opacity-40 mb-6">Recent Interactions</h3>
+                        {chats.map(chat => (
+                          <div key={chat.chat_id} className="glass p-6 rounded-3xl flex items-center justify-between">
+                             <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">💬</div>
+                                <div>
+                                   <p className="font-bold text-sm">{chat.title}</p>
+                                   <p className="text-[10px] opacity-40 uppercase tracking-widest">Modified {new Date(chat.timestamp * 1000).toLocaleDateString()}</p>
+                                </div>
+                             </div>
+                             <button className="text-xs font-bold text-accent opacity-0 group-hover:opacity-100 transition-all">Resume Session</button>
+                          </div>
+                        ))}
+                     </div>
+                  </motion.div>
+                )}
+
+              </AnimatePresence>
+            </div>
+          </main>
+        </div>
+      );
+    };
+
+    const NavItem = ({ active, icon, label, onClick }) => (
+      <button onClick={onClick} className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all relative overflow-hidden group ${active ? 'bg-white/5 text-accent' : 'text-gray-500 hover:bg-white/5'}`}>
+        {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent shadow-[0_0_10px_#00e5a0]" />}
+        <span className="text-xl group-hover:scale-110 transition-transform">{icon}</span>
+        <span className="text-sm font-bold tracking-tight hidden md:block">{label}</span>
+      </button>
+    );
+
+    const StatCard = ({ label, val, sub }) => (
+      <div className="glass p-10 rounded-[2.5rem] relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full blur-3xl group-hover:bg-brand/10 transition-all" />
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">{label}</p>
+        <p className="text-4xl font-bold font-display mb-2">{val}</p>
+        <p className="text-[10px] font-bold text-accent tracking-widest uppercase">{sub}</p>
+      </div>
+    );
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Dashboard />);
+  </script>
+</body>
+</html>

@@ -1,12 +1,16 @@
-uv add chromadb
-uv add sentence-transformers
-uv add transformers
-uv add torch
-uv add pillow
-uv add pymupdf
-uv add openai
-uv add numpy
-uv add accelerate
-uv add multipart
-uv add python docx 
-uv add werkzeug
+fastapi==0.110.0
+uvicorn==0.27.1
+chromadb==0.4.24
+sentence-transformers==2.5.1
+transformers==4.38.2
+torch==2.2.1
+Pillow==10.2.0
+pymupdf==1.23.26
+openai==1.13.3
+numpy==1.26.4
+accelerate==0.27.2
+python-multipart==0.0.9
+python-docx==1.1.0
+werkzeug==3.0.1
+pydantic==2.6.3
+python-dotenv==1.0.1

@@ -15,7 +15,7 @@ if not api_key:
     exit(1)
 
 llm_client = OpenAI(
-    api_key="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",
+    api_key="",
     base_url="https://openrouter.ai/api/v1"
 )
 

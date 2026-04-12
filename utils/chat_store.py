@@ -16,6 +16,7 @@ class Message(BaseModel):
 class Chat(BaseModel):
     chat_id: str
     title: str
+    file_name: Optional[str] = None
     messages: List[Dict[str, Any]]  # JSON serializable
     timestamp: float
     user_id: str = "default"
@@ -62,6 +63,7 @@ class ChatStore:
         chat_data = {
             "chat_id": chat_id,
             "title": title,
+            "file_name": file_name,
             "messages": messages,
             "timestamp": timestamp,
             "user_id": user_id,
@@ -72,6 +74,18 @@ class ChatStore:
         save_data(data)
         print(f"Saving chat: {chat_id}, title: {title}, Total chats: {len(data)}")
         return chat_id
+
+    def rename_chat(self, chat_id: str, new_title: str) -> bool:
+        """Rename a chat's title."""
+        init_json()
+        data = load_data()
+        for chat_dict in data:
+            if chat_dict.get("chat_id") == chat_id:
+                chat_dict["title"] = new_title
+                save_data(data)
+                print(f"Renamed chat {chat_id} to: {new_title}")
+                return True
+        return False
 
     def get_chats(self, user_id: str = "default") -> List[Chat]:
         """List user's chats (recent first)."""

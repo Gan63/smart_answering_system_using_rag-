@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: multimodal-rag-assistant
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false # You will set this in the Render Dashboard
+      - key: PYTHON_VERSION
+        value: 3.10.0
+    disk:
+      name: rag-data
+      mountPath: /data
+      sizeGB: 1

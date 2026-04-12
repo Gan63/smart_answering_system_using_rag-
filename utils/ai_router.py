@@ -32,9 +32,18 @@ class AIRouter:
         # Clean path if it contains caption
         clean_path = image_path.split(' | ')[0] if ' | ' in image_path else image_path
         if not os.path.exists(clean_path):
+            print(f"[RECOVERY] Image not found on disk, checking if it is base64: {clean_path[:50]}...")
+            if clean_path.startswith("data:"):
+                return clean_path.split(",")[1]
             raise ValueError(f"Image not found: {clean_path}")
+            
+        # Determine mime type
+        ext = os.path.splitext(clean_path.lower())[1]
+        mime = "image/png" if ext == ".png" else "image/jpeg"
+        
         with open(clean_path, 'rb') as f:
-            return base64.b64encode(f.read()).decode('utf-8')
+            b64_data = base64.b64encode(f.read()).decode('utf-8')
+            return f"data:{mime};base64,{b64_data}"
 
     def _vision_mode(self, query: str, text_context: str, images: List[str], context: Dict[str, Any]) -> Dict[str, Any]:
         """Use vision LLM: describe images first, then answer."""
@@ -50,7 +59,7 @@ Describe what you see accurately. Then use text context if relevant and answer: 
 
 IDENTITY:
 - You are a Smart Multimodal RAG Assistant.
-- You were created by a talented developer (Ganesh).
+- You were created by a talented developer and Code Assistant creator (Ganesh).
 - Your work includes reading, understanding, and extracting information from uploaded files like PDFs, Word documents, and images.
 - Your process involves: searching the given documents to find relevant text and images that match the user's query, analyzing this extracted context, and finally synthesizing a precise and accurate response based strictly on the uploaded content.
 
@@ -69,17 +78,17 @@ Be precise, no hallucinations."""
             # Add images (first 4 max)
             for img_path in images[:4]:
                 try:
-                    img_b64 = self._load_image_b64(img_path)
+                    img_data_url = self._load_image_b64(img_path)
                     messages[0]["content"].append({
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
+                        "image_url": {"url": img_data_url}
                     })
                 except Exception as e:
                     print(f"Warning: skipped image {img_path}: {e}")
             
-            # Use Qwen 2.5 VL (available on OpenRouter, supports vision)
+            # Use Gemini 2.0 Flash (Stable, excellent vision)
             response = self.client.chat.completions.create(
-                model="qwen/qwen2.5-vl-72b-instruct:free",
+                model="google/gemini-2.0-flash-001",
                 messages=messages,
                 temperature=0.1
             )
@@ -113,7 +122,7 @@ Be precise, no hallucinations."""
         """Text-only RAG."""
         prompt = f"""IDENTITY:
 - You are a Smart Multimodal RAG Assistant.
-- You were created by a talented developer (Ganesh).
+- You were created by a talented developer and Code Assistant creator (Ganesh).
 - Your work includes reading, understanding, and extracting information from uploaded files like PDFs, Word documents, and images.
 - Your process involves: searching the given documents to find relevant text and images that match the user's query, analyzing this extracted context, and finally synthesizing a precise and accurate response based strictly on the uploaded content.
 
@@ -138,24 +147,42 @@ Otherwise, answer directly and accurately using context only. If unclear, say so
         }
 
     def generate_image(self, prompt: str, style: str = "diagram") -> str:
-        """Generate image from text prompt using Flux. Returns base64 PNG."""
+        """Generate image from text prompt using Gemini 3 via OpenRouter. Returns image URL or base64."""
         try:
-            enhanced_prompt = f"Professional {style}, clean lines, technical diagram style, white background, high quality: {prompt}"
+            # Enhanced prompt for Gemini
+            enhanced_prompt = f"Generate a high-quality {style} image: {prompt}"
             
-            response = self.client.images.generate(
-                model="black-forest-labs/flux-schnell",
-                prompt=enhanced_prompt,
-                n=1,
-                size="1024x1024",
-                response_format="b64_json"
+            print(f"🎨 Requesting image from Gemini 3 Pro: {prompt[:50]}...")
+            response = self.client.chat.completions.create(
+                model="google/gemini-3-pro-image-preview",
+                messages=[{"role": "user", "content": [{"type": "text", "text": enhanced_prompt}]}]
             )
             
-            image_b64 = response.data[0].b64_json
-            print(f"🖼️ Generated image for: {prompt[:50]}...")
-            return image_b64
+            content = response.choices[0].message.content
+            
+            # Extract URL if markdown, else use content directly
+            import re
+            url_match = re.search(r'\((https?://[^\)]+)\)', content)
+            
+            if url_match:
+                img_url = url_match.group(1)
+                print(f"✅ Image generated (URL): {img_url}")
+                return img_url
+            
+            if content.startswith("http") or content.startswith("data:image"):
+                return content.strip()
+
+            # Some models return the URL in the response without markdown
+            if "https://" in content:
+                url_match = re.search(r'https?://[^\s\)]+', content)
+                if url_match:
+                    return url_match.group(0)
+
+            print(f"⚠️ Service returned text: {content[:100]}...")
+            return None
+            
         except Exception as e:
-            print(f"Image gen error: {e} - Fallback ASCII diagram")
-            # Simple fallback diagram for technical requests
+            print(f"❌ Image generation error: {str(e)}")
             return None
 
 # Global (for compatibility)
