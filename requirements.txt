@@ -15,3 +15,4 @@ werkzeug
 pydantic
 python-dotenv
 gunicorn
+PyJWT
