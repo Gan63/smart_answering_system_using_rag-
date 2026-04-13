@@ -16,4 +16,4 @@ pydantic
 python-dotenv
 gunicorn
 PyJWT
-mysql
+mysql-connector-python
