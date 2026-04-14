@@ -3,7 +3,7 @@ import re
 from openai import OpenAI
 
 # Hardcoded test from app.py
-OPENROUTER_API_KEY = ""
+OPENROUTER_API_KEY = "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"
 BASE_URL = "https://openrouter.ai/api/v1"
 
 client = OpenAI(

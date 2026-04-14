@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
     
     if not api_key:
         print("[WARNING] OPENROUTER_API_KEY not found in environment. Using development fallback.")
-        api_key = ""
+        api_key = "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"
 
     llm_client = OpenAI(
         api_key=api_key,
