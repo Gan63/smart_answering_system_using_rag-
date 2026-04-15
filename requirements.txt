@@ -18,8 +18,6 @@ PyJWT
 bcrypt
 mysql-connector-python
 httpx
-<<<<<<< HEAD
 requests
-=======
-requests
->>>>>>> 9148c38cb08a5f17a742349e05711e80a279197c
+
+
