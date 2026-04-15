@@ -1,3 +1,5 @@
+from utils.auth import register_google_user
+from utils.auth import get_user_by_google_id
 import os
 import time
 import uvicorn
@@ -17,7 +19,7 @@ from ingestion.ingest_pdf import ingest_pdf
 from ingestion.ingest_docx import ingest_docx
 from ingestion.ingest_image import ingest_image
 from database.chroma_client import delete_session_data
-from database.db_config import get_db_connection
+from database.db_config import get_db_connection, test_connection
 from session_store import session_store
 from utils.token_counter import count_tokens_from_response
 from utils.session_manager import add_to_history, get_chat_history, get_session_stats
@@ -252,6 +254,13 @@ async def llm_health():
         return {"status": "ok", "llm_connected": True, "model": "meta-llama/llama-3.1-8b-instruct"}
     except Exception as e:
         return {"status": "error", "llm_connected": False, "error": str(e)[:200]}
+
+@app.get("/db-health")
+async def db_health():
+    """Check MySQL cloud database connectivity — useful after deploying to Render."""
+    result = test_connection()
+    status_code = 200 if result["connected"] else 503
+    return JSONResponse(content=result, status_code=status_code)
 
 @app.get("/favicon.ico")
 async def favicon():

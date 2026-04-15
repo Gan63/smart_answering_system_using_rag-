@@ -1,3 +1,4 @@
+import os
 import jwt  # PyJWT
 import bcrypt
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,14 @@ from pydantic import BaseModel
 from typing import Optional
 from database.db_config import get_db_connection
 
-SECRET_KEY = "your-super-secret-key-change-in-production"
+SECRET_KEY = os.getenv("JWT_SECRET", "dev-only-insecure-secret-change-me")
+if SECRET_KEY == "dev-only-insecure-secret-change-me":
+    import warnings
+    warnings.warn(
+        "⚠️  JWT_SECRET env var is not set! Using insecure default. "
+        "Set JWT_SECRET in Render → Your Service → Environment.",
+        stacklevel=2,
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480 # 8 hours
 

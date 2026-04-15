@@ -5,10 +5,27 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: OPENROUTER_API_KEY
-        sync: false # You will set this in the Render Dashboard
       - key: PYTHON_VERSION
-        value: 3.10.0
+        value: "3.10.0"
+      # ── Set these in the Render Dashboard (never commit real values) ──
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: MYSQL_HOST
+        sync: false
+      - key: MYSQL_PORT
+        sync: false
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
+      - key: MYSQL_DB
+        sync: false
+      - key: MYSQL_SSL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
     disk:
       name: rag-data
       mountPath: /data

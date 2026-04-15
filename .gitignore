@@ -1,0 +1,38 @@
+# Environment & secrets
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data & logs
+*.log
+data/debug_screenshots/
+vectordb/
+trace*.log
+trace*.txt
+inspect_results.txt
+inspect_report.txt
+db_report_raw.txt
