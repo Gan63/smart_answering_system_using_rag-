@@ -69,15 +69,28 @@ def init_db():
             id INT AUTO_INCREMENT PRIMARY KEY,
             full_name VARCHAR(255) NOT NULL,
             email VARCHAR(255) UNIQUE NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
+            password_hash VARCHAR(255) NULL,
+            google_id VARCHAR(255) UNIQUE NULL,
+            pfp_url TEXT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP NULL
         );
-        
         """
         cursor.execute(create_users_table)
+        
+        # Ensure columns exist (for existing tables)
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN google_id VARCHAR(255) UNIQUE NULL AFTER password_hash")
+            print("✅ Added google_id column to users table")
+        except: pass # Column likely already exists
+        
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN pfp_url TEXT NULL AFTER google_id")
+            print("✅ Added pfp_url column to users table")
+        except: pass
+        
         conn.commit()
-        print("✅ MySQL Users table initialized in smart_rag_db")
+        print("✅ MySQL Users table initialized in smart_rag_db (Social Login Ready)")
         
         cursor.close()
     except Exception as e:

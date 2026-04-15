@@ -17,6 +17,7 @@ from ingestion.ingest_pdf import ingest_pdf
 from ingestion.ingest_docx import ingest_docx
 from ingestion.ingest_image import ingest_image
 from database.chroma_client import delete_session_data
+from database.db_config import get_db_connection
 from session_store import session_store
 from utils.token_counter import count_tokens_from_response
 from utils.session_manager import add_to_history, get_chat_history, get_session_stats
@@ -216,6 +217,9 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
 
+class GoogleLoginRequest(BaseModel):
+    id_token: str
+
 @app.get("/")
 async def root():
     return FileResponse("project_ui/index.html")
@@ -290,6 +294,93 @@ async def api_login(request: LoginRequest):
         "user": {
             "full_name": user["full_name"],
             "email": user["email"]
+        }
+    }
+
+@app.post("/api/auth/google")
+async def api_google_login(request: GoogleLoginRequest):
+    """
+    Handles Google OAuth2 token verification and user login/registration.
+    Accepts a Google OAuth2 id_token from the frontend.
+    """
+    import httpx
+    
+    CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+    
+    if not CLIENT_ID:
+        raise HTTPException(
+            status_code=503, 
+            detail="Google Sign-In is not configured. Please set GOOGLE_CLIENT_ID in your environment variables."
+        )
+    
+    # Verify the id_token with Google's tokeninfo endpoint
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"id_token": request.id_token}
+            )
+        
+        if response.status_code != 200:
+            print(f"❌ Tokeninfo error: {response.text}")
+            raise HTTPException(status_code=401, detail="Invalid Google token")
+        
+        idinfo = response.json()
+        
+        print("\n" + "="*50)
+        print(f"🔍 [DEBUG] Full Google Auth Payload:")
+        print(idinfo)
+        print("="*50 + "\n")
+        
+        # Verify the audience matches our client ID
+        if idinfo.get("aud") != CLIENT_ID:
+            print(f"❌ Token audience mismatch: {idinfo.get('aud')} != {CLIENT_ID}")
+            raise HTTPException(status_code=401, detail="Token audience mismatch")
+            
+        if "email" not in idinfo:
+            print("❌ Scope Issue: 'email' field missing in Google Auth Response.")
+            raise HTTPException(status_code=400, detail="Missing email scope. Ensure Google Cloud Console has People API and OAuth consent configured for email.")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Google Token Verification Error: {e}")
+        raise HTTPException(status_code=401, detail="Failed to verify Google token")
+
+    google_id = idinfo.get('sub')
+    email = idinfo.get('email')
+    
+    if not email:
+        raise HTTPException(status_code=400, detail="No email associated with this Google Account")
+        
+    name = idinfo.get('name', email.split('@')[0])
+    picture = idinfo.get('picture')
+
+    user = get_user_by_google_id(google_id)
+    if not user:
+        # Check if user exists by email but no google_id
+        from utils.auth import get_user_by_email
+        user = get_user_by_email(email)
+        if user:
+            # Link existing account
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET google_id = %s, pfp_url = %s WHERE id = %s", (google_id, picture, user['id']))
+            conn.commit()
+            cursor.close()
+            conn.close()
+        else:
+            # Register new user
+            user = register_google_user(name, email, google_id, picture)
+    
+    access_token = create_access_token(data={"sub": email})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "full_name": name,
+            "email": email,
+            "pfp_url": picture
         }
     }
 

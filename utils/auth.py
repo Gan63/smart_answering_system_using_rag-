@@ -52,6 +52,22 @@ def get_user_by_email(email: str) -> Optional[dict]:
     finally:
         conn.close()
 
+def get_user_by_google_id(google_id: str) -> Optional[dict]:
+    conn = get_db_connection()
+    if not conn:
+        return None
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM users WHERE google_id = %s", (google_id,))
+        user = cursor.fetchone()
+        cursor.close()
+        return user
+    except Exception as e:
+        print(f"❌ Error fetching user by Google ID: {e}")
+        return None
+    finally:
+        conn.close()
+
 def authenticate_user(email: str, password: str):
     user = get_user_by_email(email)
     if not user:
@@ -92,6 +108,21 @@ def register_user(full_name: str, email: str, password: str):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
             detail=f"Registration failed due to database error: {str(e)}"
         )
+def register_google_user(full_name: str, email: str, google_id: str, pfp_url: str = None):
+    conn = get_db_connection()
+    if not conn: return None
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO users (full_name, email, google_id, pfp_url) VALUES (%s, %s, %s, %s)",
+            (full_name, email, google_id, pfp_url)
+        )
+        conn.commit()
+        cursor.close()
+        return {"full_name": full_name, "email": email, "google_id": google_id, "pfp_url": pfp_url}
+    except Exception as e:
+        print(f"❌ Error registering Google user: {e}")
+        return None
     finally:
         conn.close()
 

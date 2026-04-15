@@ -362,9 +362,17 @@ async function send(overrideMsg = null, screenshotB64 = null) {
           tokenCountEl.textContent = data.tokens.total_tokens.toLocaleString() + ' tokens';
           tokenChip.style.display = 'flex';
         }
+        let wasNewChat = false;
+        if (!currentChatId && data.chat_id) {
+            wasNewChat = true;
+        }
         if (data.chat_id) currentChatId = data.chat_id;
         console.log("Updated Current Chat ID:", currentChatId, "Mode:", data.mode);
-
+        
+        // Ensure new chats appear in the sidebar immediately
+        if (wasNewChat) {
+            loadChats();
+        }
     } catch (err) {
         hideLoading();
         appendBubble('ai', `**Error:** Could not get an answer. \n\n${err.message}`);

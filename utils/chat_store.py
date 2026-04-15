@@ -56,8 +56,15 @@ class ChatStore:
         """Create new chat, title from file_name."""
         init_json()
         chat_id = str(uuid.uuid4())
-        # Title: file basename without extension
-        title = os.path.splitext(os.path.basename(file_name))[0] if file_name else "Untitled"
+        # Title logic: if no specific file_name is loaded (or if it's "New Chat"), 
+        # base the title on the first message.
+        if file_name and file_name != "New Chat":
+            title = os.path.splitext(os.path.basename(file_name))[0]
+        else:
+            title_text = first_message.strip()
+            title = (title_text[:30] + '...') if len(title_text) > 30 else title_text
+            if not title:
+                title = "New Chat"
         timestamp = time.time()
         messages = [{"role": "user", "content": first_message, "sources": [], "images": [], "used_vision": False}]
         chat_data = {

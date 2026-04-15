@@ -940,5 +940,29 @@
     "timestamp": 1775982330.5325258,
     "user_id": "default",
     "session_id": null
+  },
+  {
+    "chat_id": "a90d9aaf-7491-4074-99a2-33546d5f8ae7",
+    "title": "hi",
+    "file_name": "New Chat",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi",
+        "sources": [],
+        "images": [],
+        "used_vision": false
+      },
+      {
+        "role": "assistant",
+        "content": "\u274c LLM Error: Error code: 401 - {'error': {'message': 'User not found.', 'code': 401}}",
+        "sources": [],
+        "images": [],
+        "used_vision": false
+      }
+    ],
+    "timestamp": 1776186928.63482,
+    "user_id": "default",
+    "session_id": null
   }
 ]
