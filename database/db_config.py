@@ -1,4 +1,4 @@
-import os
+'''import os
 import mysql.connector
 from mysql.connector import pooling, Error as MySQLError
 
@@ -204,4 +204,4 @@ def _safe_alter(cursor, sql: str) -> None:
             raise
 
 # Auto-init tables when module loads
-init_db()
+init_db()'''
