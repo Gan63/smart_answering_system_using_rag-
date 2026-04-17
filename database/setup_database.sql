@@ -1,11 +1,28 @@
--- Smart RAG Database Schema
--- This file can be used to manually setup the MySQL database
+import os
+import psycopg2
+from psycopg2 import pool
 
-CREATE DATABASE IF NOT EXISTS smart_rag_db;
-USE smart_rag_db;
+connection_pool = None
 
--- Users table
--- Note: password_hash is nullable to allow for social logins (Google, etc.)
+def init_db():
+    global connection_pool
+    try:
+        connection_pool = psycopg2.pool.SimpleConnectionPool(
+            1, 10,
+            os.getenv("DATABASE_URL")
+        )
+        print("✅ DB connected")
+    except Exception as e:
+        print("❌ DB error:", e)
+
+
+def get_conn():
+    return connection_pool.getconn() if connection_pool else None
+
+
+def release_conn(conn):
+    if connection_pool and conn:
+        connection_pool.putconn(conn)
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     full_name VARCHAR(255) NOT NULL,
