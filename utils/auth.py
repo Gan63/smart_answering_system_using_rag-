@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
-from db import get_conn
+from db_config import get_conn
 
 SECRET_KEY = os.getenv("JWT_SECRET", "dev-only-insecure-secret-change-me")
 if SECRET_KEY == "dev-only-insecure-secret-change-me":
