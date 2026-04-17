@@ -4,18 +4,16 @@ from agent.planner import agent_query
 from database.chroma_client import get_text_collection
 from ingestion.ingest_pdf import ingest_pdf
 from ingestion.ingest_image import ingest_image
+from db import init_db
 
-# LLM Setup
+# ✅ Load API key safely
 api_key = os.getenv("OPENROUTER_API_KEY")
+
 if not api_key:
-    print("❌ ERROR: OPENROUTER_API_KEY not set.")
-    print("1. Get free key: https://openrouter.ai/keys")
-    print("2. set OPENROUTER_API_KEY")
-    print("3. See .env.example")
-    exit(1)
+    raise ValueError("❌ OPENROUTER_API_KEY not set")
 
 llm_client = OpenAI(
-    api_key="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",
+    api_key=api_key,
     base_url="https://openrouter.ai/api/v1"
 )
 
@@ -35,23 +33,27 @@ Question:
 
     return response.choices[0].message.content
 
+
 if __name__ == "__main__":
     print("🚀 Multimodal RAG CLI")
 
-    # Check if vectors already exist
+    # ✅ Initialize DB (important)
+    init_db()
+
     collection = get_text_collection()
+
     if collection.count() == 0:
         print("📥 Ingesting data...")
         ingest_pdf("data/Microsoft-Policymaker-Guide-Privacy.pdf")
         ingest_pdf("data/SMB_University_120307_Networking_Fundamentals.pdf")
+
         try:
             from ingestion.ingest_docx import ingest_docx
             ingest_docx("data/sample.docx")
-        except ImportError:
-            print("⚠️ python-docx not installed, skipping DOCX (pip install python-docx)")
-        except FileNotFoundError:
-            print("⚠️ No sample.docx, skipping")
-        ingest_image("data/Screenshot.png")  # Adjust if file exists
+        except:
+            print("⚠️ DOCX skipped")
+
+        ingest_image("data/Screenshot.png")
         print("✅ Ingestion complete")
     else:
         print("✅ Using existing vectors")
