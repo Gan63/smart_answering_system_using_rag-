@@ -16,8 +16,6 @@ pydantic
 python-dotenv
 PyJWT
 bcrypt
-mysql-connector-python
 httpx
 requests
-
-
+psycopg2-binary
