@@ -9,10 +9,9 @@ from ingestion.ingest_pdf import ingest_pdf
 from ingestion.ingest_image import ingest_image
 from db import init_db, create_tables
 
-# ✅ Init FastAPI
 app = FastAPI()
 
-# ✅ Load API key
+# ✅ API KEY
 api_key = os.getenv("OPENROUTER_API_KEY")
 if not api_key:
     raise ValueError("❌ OPENROUTER_API_KEY not set")
@@ -22,12 +21,12 @@ llm_client = OpenAI(
     base_url="https://openrouter.ai/api/v1"
 )
 
-# ✅ Request schema
+
+# ✅ Request model
 class QueryRequest(BaseModel):
     question: str
 
 
-# ✅ LLM function
 def ask_llm(context, question):
     prompt = f"""Use the following context to answer the question.
 
@@ -45,16 +44,14 @@ Question:
     return response.choices[0].message.content
 
 
-# ✅ Startup event
+# ✅ Startup
 @app.on_event("startup")
 def startup():
-    print("🚀 Starting RAG API...")
+    print("🚀 Starting app...")
 
-    # DB init
     init_db()
     create_tables()
 
-    # Ingestion check
     collection = get_text_collection()
 
     if collection.count() == 0:
@@ -77,10 +74,10 @@ def startup():
 # ✅ Health check
 @app.get("/")
 def home():
-    return {"message": "Smart RAG API running 🚀"}
+    return {"message": "Smart RAG running 🚀"}
 
 
-# ✅ Main RAG endpoint
+# ✅ RAG endpoint
 @app.post("/ask")
 def ask_question(req: QueryRequest):
     context = agent_query(req.question)
