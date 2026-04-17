@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
-from database.db_config import get_db_connection
+from db import get_conn
 
 SECRET_KEY = os.getenv("JWT_SECRET", "dev-only-insecure-secret-change-me")
 if SECRET_KEY == "dev-only-insecure-secret-change-me":
@@ -45,7 +45,7 @@ def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def get_user_by_email(email: str) -> Optional[dict]:
-    conn = get_db_connection()
+    conn = get_conn()
     if not conn:
         return None
     try:
@@ -61,7 +61,7 @@ def get_user_by_email(email: str) -> Optional[dict]:
         conn.close()
 
 def get_user_by_google_id(google_id: str) -> Optional[dict]:
-    conn = get_db_connection()
+    conn = get_conn()
     if not conn:
         return None
     try:
@@ -85,7 +85,7 @@ def authenticate_user(email: str, password: str):
     return user
 
 def register_user(full_name: str, email: str, password: str):
-    conn = get_db_connection()
+    conn = get_conn()
     if not conn:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -117,7 +117,7 @@ def register_user(full_name: str, email: str, password: str):
             detail=f"Registration failed due to database error: {str(e)}"
         )
 def register_google_user(full_name: str, email: str, google_id: str, pfp_url: str = None):
-    conn = get_db_connection()
+    conn = get_conn()
     if not conn: return None
     try:
         cursor = conn.cursor()
@@ -135,7 +135,7 @@ def register_google_user(full_name: str, email: str, google_id: str, pfp_url: st
         conn.close()
 
 def update_last_login(email: str):
-    conn = get_db_connection()
+    conn = get_conn()
     if not conn: return
     try:
         cursor = conn.cursor()
