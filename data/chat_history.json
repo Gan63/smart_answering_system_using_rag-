@@ -988,5 +988,77 @@
     "timestamp": 1776221714.2052708,
     "user_id": "default",
     "session_id": null
+  },
+  {
+    "chat_id": "d862e85e-4ca7-4f3c-b73a-b6cbed9acc75",
+    "title": "hi",
+    "file_name": "New Chat",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi",
+        "sources": [],
+        "images": [],
+        "used_vision": false
+      },
+      {
+        "role": "assistant",
+        "content": "\u274c LLM Error: Error code: 401 - {'error': {'message': 'User not found.', 'code': 401}}",
+        "sources": [],
+        "images": [],
+        "used_vision": false
+      }
+    ],
+    "timestamp": 1776489637.9480789,
+    "user_id": "gane@example.com",
+    "session_id": null
+  },
+  {
+    "chat_id": "9d2a59dd-2a6f-4f62-b7ef-b0b18fe8c746",
+    "title": "who are u",
+    "file_name": "who are u",
+    "messages": [
+      {
+        "role": "user",
+        "content": "who are u",
+        "sources": [],
+        "images": [],
+        "used_vision": false
+      },
+      {
+        "role": "assistant",
+        "content": "\u274c LLM Error: Error code: 401 - {'error': {'message': 'User not found.', 'code': 401}}",
+        "sources": [],
+        "images": [],
+        "used_vision": false
+      }
+    ],
+    "timestamp": 1776489842.932846,
+    "user_id": "gane@example.com",
+    "session_id": null
+  },
+  {
+    "chat_id": "5e25b6ff-1862-467c-87ac-1431c20c94ab",
+    "title": "hi",
+    "file_name": "hi",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi",
+        "sources": [],
+        "images": [],
+        "used_vision": false
+      },
+      {
+        "role": "assistant",
+        "content": "\u274c LLM Error: Error code: 401 - {'error': {'message': 'User not found.', 'code': 401}}",
+        "sources": [],
+        "images": [],
+        "used_vision": false
+      }
+    ],
+    "timestamp": 1776489954.5463874,
+    "user_id": "gane@example.com",
+    "session_id": null
   }
 ]

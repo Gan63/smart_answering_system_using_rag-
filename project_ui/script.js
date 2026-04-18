@@ -1,8 +1,38 @@
 'use strict';
 
 /* ── CONFIG ── */
- // Dynamic base URL (works with any port:8000/8001/etc)
-// Uses relative paths automatically
+// Intercept all fetch requests to automatically attach JWT token
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+    let [resource, config] = args;
+    const token = localStorage.getItem('smart_rag_token');
+    
+    let urlStr = "";
+    if (typeof resource === 'string') {
+        urlStr = resource;
+    } else if (resource instanceof Request) {
+        urlStr = resource.url;
+    } else if (resource instanceof URL) {
+        urlStr = resource.toString();
+    }
+    
+    // Only intercept requests to our own API
+    if (token && urlStr.startsWith('/')) {
+        config = config || {};
+        
+        // Handle headers object
+        if (config.headers instanceof Headers) {
+            config.headers.set('Authorization', `Bearer ${token}`);
+        } else {
+            config.headers = { ...config.headers, 'Authorization': `Bearer ${token}` };
+        }
+        
+        // If it was a Request object, we must pass the modified config as the second argument
+        // fetch(Request, config) takes precedence over Request's internal headers.
+    }
+    
+    return originalFetch.apply(this, [resource, config]);
+};
 
 /* ── STATE ── */
 let currentSession = {
@@ -862,7 +892,6 @@ async function loadChats() {
         const chatItemsHTML = chats.map(chat => {
             const isActive = chat.chat_id === currentChatId ? ' active' : '';
             const date = new Date(chat.timestamp * 1000).toLocaleDateString();
-            const fileNameHTML = chat.file_name ? `<span class="file-name-meta" title="Source: ${esc(chat.file_name)}">📁 ${esc(chat.file_name)}</span>` : '';
             return `
                 <div class="history-item chat-item${isActive}" data-chat-id="${chat.chat_id}">
                     <div class="chat-item-row">
@@ -872,7 +901,6 @@ async function loadChats() {
                         </button>
                     </div>
                     <div class="history-meta">
-                        ${fileNameHTML}
                         <div style="display:flex; gap:8px;">
                            <span class="msg-count">${chat.message_count || 0} msgs</span>
                            <span class="last-msg">${date}</span>

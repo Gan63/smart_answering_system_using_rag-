@@ -12,6 +12,7 @@ class SessionInfo(BaseModel):
     filename: str
     created_at: float
     session_id: str
+    user_id: str = "default"
     chat_history: List[Dict[str, Any]] = []
     message_count: int = 0
     total_tokens: int = 0
@@ -25,12 +26,13 @@ class SessionStore:
         self.sessions: Dict[str, SessionInfo] = {}
         self.chat_history: Dict[str, list[Message]] = {}
 
-    def create_session(self, filename: str, session_id: str) -> str:
-        print(f"[DEBUG] SessionStore.create_session called with filename='{filename}', session_id='{session_id}'")
+    def create_session(self, filename: str, session_id: str, user_id: str = "default") -> str:
+        print(f"[DEBUG] SessionStore.create_session called with filename='{filename}', session_id='{session_id}', user_id='{user_id}'")
         self.sessions[session_id] = SessionInfo(
             filename=filename,
             created_at=time.time(),
             session_id=session_id,
+            user_id=user_id,
             title=filename[:30] + "..." if len(filename) > 30 else filename
         )
         self.chat_history[session_id] = []
@@ -39,10 +41,10 @@ class SessionStore:
     def get_session(self, session_id: str) -> Optional[SessionInfo]:
         return self.sessions.get(session_id)
 
-    def get_all_sessions(self) -> list[SessionInfo]:
-        return list(self.sessions.values())
+    def get_all_sessions(self, user_id: str = "default") -> list[SessionInfo]:
+        return [s for s in self.sessions.values() if s.user_id == user_id]
 
-    def get_sessions(self) -> list[dict]:
+    def get_sessions(self, user_id: str = "default") -> list[dict]:
         return [
             {
                 "id": info.session_id,
@@ -51,7 +53,7 @@ class SessionStore:
                 "last_updated": info.last_updated,
                 "filename": info.filename
             }
-            for info in self.sessions.values()
+            for info in self.sessions.values() if info.user_id == user_id
         ]
 
     def increment_message_count(self, session_id: str) -> bool:

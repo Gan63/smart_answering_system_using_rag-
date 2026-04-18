@@ -448,8 +448,8 @@ async def query_endpoint(request: AskRequest):
         return {"answer": f"Server error: {str(e)}", "error": str(e), "images": []}
 
 @app.post("/upload")
-async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    print(f"📤 Upload hit: {file.filename}")
+async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...), current_user: User = Depends(get_current_active_user)):
+    print(f"📤 Upload hit: {file.filename} by {current_user.email}")
     try:
         if not file:
             raise HTTPException(status_code=400, detail="No file uploaded")
@@ -463,7 +463,7 @@ async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)
             buffer.write(await file.read())
         
         session_id = str(uuid.uuid4())
-        session_store.create_session(filename, session_id)
+        session_store.create_session(filename, session_id, user_id=current_user.email)
         
         def ingest_file():
             try:
@@ -503,8 +503,8 @@ async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/upload-image")
-async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...), session_id: str = None):
-    print(f"🖼️ Direct image upload: {file.filename}")
+async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...), session_id: str = None, current_user: User = Depends(get_current_active_user)):
+    print(f"🖼️ Direct image upload: {file.filename} by {current_user.email}")
     try:
         # Validate file type
         if not file:
@@ -517,7 +517,7 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         # Use provided session or create new
         if session_id is None:
             session_id = str(uuid.uuid4())
-            session_store.create_session("image_upload", session_id)
+            session_store.create_session("image_upload", session_id, user_id=current_user.email)
         
         # Save temp file for ingest_image (expects path)
         filename = secure_filename(file.filename)
@@ -549,7 +549,7 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/history/{session_id}")
-async def get_history(session_id: str):
+async def get_history(session_id: str, current_user: User = Depends(get_current_active_user)):
     try:
         history = get_chat_history(session_id)
         stats = get_session_stats(session_id)
@@ -564,7 +564,7 @@ async def get_history(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/session/{session_id}")
-async def get_session_stats_api(session_id: str):
+async def get_session_stats_api(session_id: str, current_user: User = Depends(get_current_active_user)):
     from utils.session_manager import get_session_stats
     stats = get_session_stats(session_id) or {}
     return {
@@ -575,9 +575,9 @@ async def get_session_stats_api(session_id: str):
     }
 
 @app.get("/sessions")
-async def get_sessions():
+async def get_sessions(current_user: User = Depends(get_current_active_user)):
     try:
-        all_sessions = session_store.get_all_sessions()
+        all_sessions = session_store.get_all_sessions(user_id=current_user.email)
         return {
             "sessions": [session.dict() for session in all_sessions]
         }
@@ -588,11 +588,11 @@ async def get_sessions():
         return {"sessions": [], "error": "Sessions unavailable"}
 
 @app.get("/chats")
-async def get_chats():
+async def get_chats(current_user: User = Depends(get_current_active_user)):
     """List all chats for user."""
     try:
-        chats = chat_store.get_chats(user_id="default")
-        print(f"Serving {len(chats)} chats to frontend")
+        chats = chat_store.get_chats(user_id=current_user.email)
+        print(f"Serving {len(chats)} chats to frontend for user {current_user.email}")
         return {
             "chats": [
                 {
@@ -613,10 +613,10 @@ async def get_chats():
         return {"chats": [], "error": "Chat store unavailable"}
 
 @app.get("/history/{user_id}")
-async def get_user_history(user_id: str):
+async def get_user_history(user_id: str, current_user: User = Depends(get_current_active_user)):
     """Get chat history for specific user."""
     try:
-        chats = chat_store.get_chats(user_id="default")
+        chats = chat_store.get_chats(user_id=current_user.email)
         return {
             "user_id": user_id,
             "chats": [
@@ -634,7 +634,7 @@ async def get_user_history(user_id: str):
         return {"chats": [], "error": "Chat history unavailable"}
 
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, current_user: User = Depends(get_current_active_user)):
     """Legacy redirect to new Hybrid Chat logic."""
     try:
         hybrid_req = HybridChatRequest(
@@ -642,11 +642,11 @@ async def chat_endpoint(request: ChatRequest):
             session_id=request.session_id,
             chat_id=request.chat_id,
             file_name=request.file_name,
-            user_id=request.user_id,
+            user_id=current_user.email,
             top_k_text=request.top_k_text,
             top_k_image=request.top_k_image
         )
-        return await hybrid_chat_endpoint(hybrid_req)
+        return await hybrid_chat_endpoint(hybrid_req, current_user)
     except Exception as e:
         print(f"Chat redirect error: {str(e)}")
         import traceback
@@ -655,8 +655,7 @@ async def chat_endpoint(request: ChatRequest):
 
 
 @app.get("/chat/{chat_id}")
-
-async def get_full_chat(chat_id: str):
+async def get_full_chat(chat_id: str, current_user: User = Depends(get_current_active_user)):
     try:
         chat = chat_store.get_chat(chat_id)
         if not chat:
@@ -667,7 +666,7 @@ async def get_full_chat(chat_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/chat/{chat_id}")
-async def delete_chat(chat_id: str):
+async def delete_chat(chat_id: str, current_user: User = Depends(get_current_active_user)):
     try:
         success = chat_store.delete_chat(chat_id)
         if success:
@@ -680,7 +679,7 @@ async def delete_chat(chat_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/delete_chat/{chat_id}")
-async def delete_chat_new(chat_id: str):
+async def delete_chat_new(chat_id: str, current_user: User = Depends(get_current_active_user)):
     """
     NEW endpoint for delete chat as per task requirements
     """
@@ -701,7 +700,7 @@ class RenameRequest(BaseModel):
     title: str
 
 @app.patch("/chat/{chat_id}/rename")
-async def rename_chat(chat_id: str, request: RenameRequest):
+async def rename_chat(chat_id: str, request: RenameRequest, current_user: User = Depends(get_current_active_user)):
     """Rename a specific chat history file name/title."""
     try:
         success = chat_store.rename_chat(chat_id, request.title)
@@ -714,7 +713,7 @@ async def rename_chat(chat_id: str, request: RenameRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/session/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, current_user: User = Depends(get_current_active_user)):
     try:
         delete_session_data(session_id)
         return {"message": f"Session {session_id} deleted."}
@@ -724,7 +723,7 @@ async def delete_session(session_id: str):
 
 # ─── HYBRID CHAT ENDPOINT ───
 @app.post("/api/hybrid-chat")
-async def hybrid_chat_endpoint(request: HybridChatRequest):
+async def hybrid_chat_endpoint(request: HybridChatRequest, current_user: User = Depends(get_current_active_user)):
     """
     Intelligent hybrid endpoint: auto-detects RAG / Code / Hybrid mode.
     Returns structured responses with mode metadata.
@@ -824,11 +823,12 @@ async def hybrid_chat_endpoint(request: HybridChatRequest):
 
         # 6. Manage chat persistence
         if request.chat_id is None:
+            title = request.file_name if request.file_name else (request.message[:30] + "..." if len(request.message) > 30 else request.message)
             request.chat_id = chat_store.create_chat(
-                request.file_name or "New Chat",
+                title,
                 request.message,
                 request.session_id,
-                request.user_id,
+                current_user.email,
             )
         else:
             chat_store.append_message(request.chat_id, "user", request.message, [], [])
@@ -883,7 +883,7 @@ async def detect_mode_endpoint(q: str, has_context: bool = False):
     return {"mode": mode, "query": q}
 
 @app.delete("/file/{session_id}")
-async def delete_uploaded_file(session_id: str):
+async def delete_uploaded_file(session_id: str, current_user: User = Depends(get_current_active_user)):
     """
     Delete an uploaded file and its vectors from ChromaDB.
     Removes the physical file from disk and clears the session from the in-memory store.
