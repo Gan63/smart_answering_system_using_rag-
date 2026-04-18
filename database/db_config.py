@@ -273,5 +273,8 @@ def create_tables():
     finally:
         cur.close()
         release_conn(conn)
-   def get_db_connection():
+        
+def get_db_connection():
     return get_conn()
+      
+    
