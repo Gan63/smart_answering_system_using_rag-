@@ -806,7 +806,6 @@ async def hybrid_chat_endpoint(request: HybridChatRequest, current_user: User = 
             print(f"[HYBRID CHAT] Image generation intent detected.")
             # If the answer is very short, it's probably a question/clarification, not a prompt
             if len(result["answer"]) > 20: 
-                from utils.ai_router import AIRouter
                 print(f"[HYBRID CHAT] Generating image with prompt: {result['answer'][:100]}...")
                 try:
                     router = AIRouter(llm_client)
