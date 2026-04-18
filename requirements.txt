@@ -1,3 +1,4 @@
+
 fastapi
 uvicorn
 chromadb
@@ -16,5 +17,6 @@ pydantic
 python-dotenv
 PyJWT
 bcrypt
-mysql-connector-python
 httpx
+requests
+psycopg2

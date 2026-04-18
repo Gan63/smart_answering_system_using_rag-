@@ -6,7 +6,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
-from database.db_config import get_db_connection
+import psycopg2.extras
+from database.db_config import get_conn, release_conn
 
 SECRET_KEY = os.getenv("JWT_SECRET", "dev-only-insecure-secret-change-me")
 if SECRET_KEY == "dev-only-insecure-secret-change-me":
@@ -17,7 +18,7 @@ if SECRET_KEY == "dev-only-insecure-secret-change-me":
         stacklevel=2,
     )
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 480 # 8 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
 
 class Token(BaseModel):
     access_token: str
@@ -45,36 +46,34 @@ def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def get_user_by_email(email: str) -> Optional[dict]:
-    conn = get_db_connection()
+    conn = get_conn()
     if not conn:
         return None
     try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cursor.fetchone()
-        cursor.close()
-        return user
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+            user = cursor.fetchone()
+        return dict(user) if user else None
     except Exception as e:
         print(f"❌ Error fetching user: {e}")
         return None
     finally:
-        conn.close()
+        release_conn(conn)
 
 def get_user_by_google_id(google_id: str) -> Optional[dict]:
-    conn = get_db_connection()
+    conn = get_conn()
     if not conn:
         return None
     try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE google_id = %s", (google_id,))
-        user = cursor.fetchone()
-        cursor.close()
-        return user
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute("SELECT * FROM users WHERE google_id = %s", (google_id,))
+            user = cursor.fetchone()
+        return dict(user) if user else None
     except Exception as e:
         print(f"❌ Error fetching user by Google ID: {e}")
         return None
     finally:
-        conn.close()
+        release_conn(conn)
 
 def authenticate_user(email: str, password: str):
     user = get_user_by_email(email)
@@ -85,70 +84,74 @@ def authenticate_user(email: str, password: str):
     return user
 
 def register_user(full_name: str, email: str, password: str):
-    conn = get_db_connection()
+    conn = get_conn()
     if not conn:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection failed. Please check if MySQL is running and credentials are correct."
+            detail="Database connection failed. Please check if PostgreSQL is running and DATABASE_URL is set."
         )
-    
+
     try:
-        cursor = conn.cursor()
-        # Check if email exists
-        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
-        if cursor.fetchone():
-            cursor.close()
-            raise HTTPException(status_code=400, detail="Email already registered")
-        
-        password_hash = get_password_hash(password)
-        cursor.execute(
-            "INSERT INTO users (full_name, email, password_hash) VALUES (%s, %s, %s)",
-            (full_name, email, password_hash)
-        )
+        with conn.cursor() as cursor:
+            # Check if email exists
+            cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already registered")
+
+            password_hash = get_password_hash(password)
+            cursor.execute(
+                "INSERT INTO users (full_name, email, password_hash) VALUES (%s, %s, %s)",
+                (full_name, email, password_hash)
+            )
         conn.commit()
-        cursor.close()
         return {"full_name": full_name, "email": email}
     except HTTPException:
         raise
     except Exception as e:
+        conn.rollback()
         print(f"❌ Error registering user: {e}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Registration failed due to database error: {str(e)}"
         )
+    finally:
+        release_conn(conn)
+
 def register_google_user(full_name: str, email: str, google_id: str, pfp_url: str = None):
-    conn = get_db_connection()
-    if not conn: return None
+    conn = get_conn()
+    if not conn:
+        return None
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO users (full_name, email, google_id, pfp_url) VALUES (%s, %s, %s, %s)",
-            (full_name, email, google_id, pfp_url)
-        )
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO users (full_name, email, google_id, pfp_url) VALUES (%s, %s, %s, %s)",
+                (full_name, email, google_id, pfp_url)
+            )
         conn.commit()
-        cursor.close()
         return {"full_name": full_name, "email": email, "google_id": google_id, "pfp_url": pfp_url}
     except Exception as e:
+        conn.rollback()
         print(f"❌ Error registering Google user: {e}")
         return None
     finally:
-        conn.close()
+        release_conn(conn)
 
 def update_last_login(email: str):
-    conn = get_db_connection()
-    if not conn: return
+    conn = get_conn()
+    if not conn:
+        return
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE users SET last_login = %s WHERE email = %s",
-            (datetime.now(), email)
-        )
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE users SET last_login = %s WHERE email = %s",
+                (datetime.now(), email)
+            )
         conn.commit()
-        cursor.close()
     except Exception as e:
+        conn.rollback()
         print(f"❌ Error updating last login: {e}")
     finally:
-        conn.close()
+        release_conn(conn)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -176,11 +179,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         token_data = TokenData(email=email)
     except Exception:
         raise credentials_exception
-    
+
     user = get_user_by_email(token_data.email)
     if user is None:
         raise credentials_exception
-    
+
     return User(id=user['id'], full_name=user['full_name'], email=user['email'])
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):

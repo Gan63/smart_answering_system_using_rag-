@@ -1,5 +1,3 @@
-from utils.auth import register_google_user
-from utils.auth import get_user_by_google_id
 import os
 import time
 import uvicorn
@@ -19,14 +17,14 @@ from ingestion.ingest_pdf import ingest_pdf
 from ingestion.ingest_docx import ingest_docx
 from ingestion.ingest_image import ingest_image
 from database.chroma_client import delete_session_data
-from database.db_config import get_db_connection, test_connection
+from database.db_config import get_db_connection, test_connection, release_conn
 from session_store import session_store
 from utils.token_counter import count_tokens_from_response
 from utils.session_manager import add_to_history, get_chat_history, get_session_stats
 from utils.chat_store import chat_store
 from utils.ai_router import AIRouter
 from utils.hybrid_router import HybridRouter, detect_mode
-from utils.auth import User, get_current_active_user, authenticate_user, create_access_token, register_user, update_last_login
+from utils.auth import User, get_current_active_user, authenticate_user, create_access_token, register_user, update_last_login, register_google_user, get_user_by_google_id, get_user_by_email
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -257,7 +255,7 @@ async def llm_health():
 
 @app.get("/db-health")
 async def db_health():
-    """Check MySQL cloud database connectivity — useful after deploying to Render."""
+    """Check PostgreSQL cloud database connectivity — useful after deploying to Render."""
     result = test_connection()
     status_code = 200 if result["connected"] else 503
     return JSONResponse(content=result, status_code=status_code)
@@ -368,16 +366,17 @@ async def api_google_login(request: GoogleLoginRequest):
     user = get_user_by_google_id(google_id)
     if not user:
         # Check if user exists by email but no google_id
-        from utils.auth import get_user_by_email
         user = get_user_by_email(email)
         if user:
             # Link existing account
             conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET google_id = %s, pfp_url = %s WHERE id = %s", (google_id, picture, user['id']))
-            conn.commit()
-            cursor.close()
-            conn.close()
+            if conn:
+                try:
+                    with conn.cursor() as cursor:
+                        cursor.execute("UPDATE users SET google_id = %s, pfp_url = %s WHERE id = %s", (google_id, picture, user['id']))
+                    conn.commit()
+                finally:
+                    release_conn(conn)
         else:
             # Register new user
             user = register_google_user(name, email, google_id, picture)
